@@ -1,0 +1,55 @@
+forego - A Forth implementation in Go
+=====================================
+
+Why?
+----
+
+For ego.  This is me learning the language.  Both of them.
+
+Someone once said that everybody who learns Forth and likes it
+thinks "oh nice, that'd be cool to write a Forth VM".  This
+happened to me, but I had no actual reason to do it until I
+started searching for a Go learning project.
+
+
+What?
+-----
+
+Forego is a naive implementation of a Forth virtual machine in Go
+that I hacked up in a week or so.  Here are its main features and
+misfeatures:
+
+The Good:
+
+- The compiler and parser are mostly ready.  Some supported words
+  include:
+    : ; [ ] , ' ['] char [char] compile, literal postpone
+    immediate parse
+    value allot variable constant create does>
+    if else then begin while repeat until again ahead do ?do loop
+    unloop leave exit quit abort bye
+  ...and those are written in Forth.  Type "words" at the prompt
+  to see the whole list.
+
+The Bad:
+
+- It doesn't support the full CORE word set yet.
+
+- Some parts which should be written in Forth are still in Go,
+  namely dictionary traversal, parser and conversion from number
+  to string and back.  Consequently, the VM knows stuff about the
+  Forth system it shouldn't know, like the location of HERE and
+  SOURCE.  Some words have two implementations at the moment, one
+  in Go and another in Forth (except : and ; that have two Forth
+  implementations).
+
+- The "kernel" ("machine" code) and "softcore" (initial Forth
+  code to run) are hardcoded in the package.
+
+- You can't bootstrap the system from scratch.  There are enough
+  Forth words to develop the rest of the compiler, but it's not
+  done yet.
+
+- It's probably damn slow.
+
+- The README is incomplete.
