@@ -5,7 +5,7 @@
 package main
 
 import (
-	"./forth"
+	"forego/forth"
 	"os"
 )
 

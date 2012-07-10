@@ -611,6 +611,9 @@ func (vm *VM) star() {
 // / ( n1 n2 -- n3 )
 func (vm *VM) slash() {
 	c := int(vm.stack.pop())
+	if c == 0 {
+		panic("zero division")
+	}
 	vm.stack.push(Cell(int(vm.stack.pop()) / c))
 }
 
