@@ -1,0 +1,473 @@
+\ ***************************************************************
+\ Microcode
+
+.L l;abort
+	(abort)
+	PUSH	0
+	PUSH	source-id
+	!
+
+.L l;quit
+	(quit)
+	refill
+	jz	l;eof
+	call	lineproc
+	PUSH	state
+	@
+	0=
+	jz	l;quit
+	PUSH	s"ok:"
+	PUSH	4
+	type
+	jmp	l;quit
+.L l;eof
+	eof
+
+.L lineproc
+	parse-word
+	PICK	1 0
+	jz	2drop,exit
+	(find)
+	?dup
+	jz	trynumber
+	1-
+	jz	exec
+	PUSH	state
+	@
+	jz	exec
+	call	compile,
+	jmp	lineproc
+.L exec
+	execute
+	jmp	lineproc
+.L trynumber
+	(trynum)
+	jz	notfound
+	PUSH	state
+	@
+	jz	lineproc
+	call	literal
+	jmp	lineproc
+.L 2drop,exit
+	2drop
+	exit
+.L notfound
+	PUSH	a
+	emit
+	type
+	PUSH	s"?"
+	PUSH	4
+	type
+	jmp	l;abort
+
+\ "ok: "
+.L s"ok:"
+	.C	6f6b3a20
+\ " ?  "
+.L s"?"
+	.C	203f2020
+
+\ source -1 (evaluate)
+.L #tib[-1]
+	.C	0
+.L tib[-1]
+	.C	0
+.L >in[-1]
+	.C	0
+
+\ source 0 (input)
+.L #tib[0]
+.EXPORT numberTib0
+	.C	0
+.L tib[0]
+.EXPORT tib0
+	.C	0
+.L >in[0]
+.EXPORT toIn0
+	.C	0
+
+\ ***************************************************************
+\ wordlist
+
+\ dict: struct
+\	flags|namelen	byte
+\	name		[1-31]byte
+\	align?		[0-3]byte
+\	prev		Cell
+\	codeword | 0	Cell
+\	data?		[]Cell
+\ flags:
+\	0x80		immediate
+\	0x40		variable
+\	0x20		unused/reserved
+\	0x1f		len(name)
+
+\ ***************************************************************
+\ variables
+
+\ here
+.L w/here
+.B 44 'here'
+.C 0
+	@
+.L here
+	.C	l;end
+
+\ (words)
+.L w/(words)
+.B 47 '(words)'
+.C w/here
+	nop
+.EXPORT dicthead
+	.C	lastword
+
+\ state
+.L w/state
+.B 45 'state'
+.C w/(words)
+	@
+.L state
+	.C	0
+
+\ source-id ( -- x )
+.L w/source-id
+.B 49 'source-id'
+.C w/state
+	@
+.L source-id
+.EXPORT sourceID
+	.C	0
+
+\ source
+.L w/source
+.B 6 'source'
+.C w/source-id
+	call	.
+	PUSH	#tib[0]
+	call	>in/internal
+	2@
+	exit
+
+\ >in
+.L w/>in
+.B 3 '>in'
+.C w/source
+	call	.
+	PUSH	>in[0]
+.L >in/internal
+	PUSH	source-id
+	@
+	PUSH	c
+	*
+	+
+	exit
+
+\ base
+.L w/base
+.B 44 'base'
+.C w/>in
+	nop
+.L base
+.EXPORT base
+	.C	a
+
+\ ***************************************************************
+\ primitives
+
+.PRIMITIVES w/base
+
+\ quit ( R: j*x -- )
+.L w/quit
+.B 4 'quit'
+.C w/(last-primitive)
+	jmp	l;quit
+
+\ abort ( i*x -- ) ( R: j*x -- )
+.L w/abort
+.B 5 'abort'
+.C w/quit
+	jmp	l;abort
+
+\ ***************************************************************
+\ assembler
+
+\ ***************************************************************
+\ compiler
+
+\ ] ( -- )
+.L w/]
+.B 41 ']'
+.C w/abort
+	call	]
+	.C	ffffffff
+.L ]
+	@
+	PUSH	state
+	jmp	!,exit
+
+\ [ ( -- ) immediate (variable, too)
+\ good luck compiling this one
+.L w/[
+.B c1 '['
+.C w/]
+	call	]
+	.C	0
+
+\ , ( x -- )
+.L w/,
+.B 1 ','
+.C w/[
+	call	.
+.L ,
+	PUSH	here
+	@
+	!
+	PUSH	4
+.L here,+!,exit
+	PUSH	here
+	+!
+	exit
+
+\ c, ( char -- )
+.L w/c,
+.B 2 'c,'
+.C w/,
+	call	.
+.L c,
+	PUSH	here
+	@
+	c!
+	PUSH	1
+	jmp	here,+!,exit
+
+\ aligned ( addr -- a-addr )
+.L w/aligned
+.B 7 'aligned'
+.C w/c,
+	call	.
+.L aligned
+	PUSH	3
+	+
+	PUSH	fffffffc
+	and
+	exit
+
+\ align ( -- )
+.L w/align
+.B 5 'align'
+.C w/aligned
+	call	.
+	PUSH	here
+	@
+	call	aligned
+	PUSH	here
+.L !,exit
+	!
+	exit
+
+\ ' ( "<spaces>name" -- xt )
+.L w/'
+.B 1 27
+.C w/align
+	call	.
+	parse-word
+	(find)
+	jz	notfound
+	\ what's going on above?
+	exit
+
+\ (s,) ( addr u -- )
+.L w/(s,)
+.B 4 '(s,)'
+.C w/'
+	call	.
+.L (s,)/begin
+	PICK	1 0
+	jz	2drop,exit
+	PICK	1 1
+	c@
+	call	c,
+	ROLL	1 1
+	1+
+	ROLL	1 1
+	1-
+	jmp	(s,)/begin
+
+\ literal  Compilation: ( x -- )  Run-time: ( -- x )  immediate
+\ : literal
+\ 7 begin
+\ >r 1 r@ lshift 1- over and while
+\ r> ?dup while
+\ 1- repeat
+.L w/literal
+.B 87 'literal'
+.C w/(s,)
+	call	.
+.L literal
+	PUSH	7
+.L literal/begin
+	>r
+	PUSH	1
+	r@
+	lshift
+	1-
+	PICK	1 1
+	and
+	jz	literal/handle
+	r>
+	?dup
+	jz	literal/longform
+	1-
+	jmp	literal/begin
+.L literal/handle
+	PUSH	ff000000
+	r@
+	lshift
+	PICK	2 0
+	and
+	?dup
+	jz	literal/drop+short
+	xor
+	jz	literal/shortform
+	rdrop
+.L literal/longform
+	PICK	1 0
+	PUSH	00ffffff
+	and
+	PUSH	40000000
+	or
+	call	,
+	PUSH	7
+	rshift
+	PUSH	4e000000
+	or
+	call	,
+	PUSH	26
+	jmp	,
+.L literal/drop+short
+	drop
+.L literal/shortform
+	r@
+	rshift
+	PUSH	fe000000
+	invert
+	and
+	r>
+	PUSH	19
+	lshift
+	or
+	PUSH	40000000
+	or
+	call	,
+.L exit
+	exit
+
+\ compile,  Execution: ( xt -- )
+.L w/compile,
+.B 8 'compile,'
+.C w/literal
+	call	.
+.L compile,
+	PICK	1 0
+	PUSH	1
+	and
+	jz	compile,/then
+	PICK	1 0
+	call	aligned
+	call	literal
+	1-
+.L compile,/then
+	@
+	?dup
+	jz	exit
+	jmp	,
+
+\ ***************************************************************
+\ some stack stuff
+
+\ dup ( x -- x x )
+.L w/dup
+.B 3 'dup'
+.C w/compile,
+	PICK	1 0
+
+\ over ( x1 x2 -- x1 x2 x1 )
+.L w/over
+.B 4 'over'
+.C w/dup
+	PICK	1 1
+
+\ swap ( x1 x2 -- x2 x1 )
+.L w/swap
+.B 4 'swap'
+.C w/over
+	ROLL	1 1
+
+\ rot ( x1 x2 x3 -- x2 x3 x1 )
+.L w/rot
+.B 3 'rot'
+.C w/swap
+	ROLL	1 2
+
+\ -rot ( x1 x2 x3 -- x3 x1 x2 )
+.L w/-rot
+.B 4 '-rot'
+.C w/rot
+	ROLL	2 1
+
+\ 2dup ( x1 x2 -- x1 x2 x1 x2 )
+.L w/2dup
+.B 4 '2dup'
+.C w/-rot
+	PICK	2 0
+
+\ 2over ( x1 x2 x3 x4 -- x1 x2 x3 x4 x1 x2 )
+.L w/2over
+.B 5 '2over'
+.C w/2dup
+	PICK	2 2
+
+\ 2swap ( x1 x2 x3 x4 -- x3 x4 x1 x2 )
+.L w/2swap
+.B 5 '2over'
+.C w/2over
+	ROLL	2 2
+
+\ 2rot ( x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2 )
+.L w/2rot
+.B 4 '2rot'
+.C w/2swap
+	ROLL	2 4
+
+\ 2-rot ( x1 x2 x3 x4 x5 x6 -- x5 x6 x1 x2 x3 x4 )
+.L w/2-rot
+.B 5 '2-rot'
+.C w/2rot
+	ROLL	4 2
+
+.L lastword
+
+\ evaluate ( i*x c-addr u -- j*x )
+.L w/evaluate
+.B 8 'evaluate'
+.C w/2-rot
+	call	.
+	PUSH	#tib[-1]
+	2!
+	PUSH	0
+	PUSH	>in[-1]
+	!
+	PUSH	ffffffff
+	PUSH	source-id
+	!
+	call	lineproc
+	PUSH	0
+	PUSH	source-id
+	!
+	exit
+
+.L l;end
+
+.EXPORT funcpad		fcf8
+.EXPORT pad		fd00
+.EXPORT defaultSource	fe00

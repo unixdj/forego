@@ -2,14 +2,13 @@
 # Use of this source code is governed by the Bugroff
 # license that can be found in the LICENSE file.
 
-include $(GOROOT)/src/Make.inc
+TARG	= forego
+KERNEL	= forth/kern.go
+AS	= as/kernel.4as
 
-TARG=forego
-GOFILES=main.go
-DIRS=forth
-PREREQ=$(addsuffix .install, $(DIRS))
+all: $(KERNEL)
+	go build
 
-%.install:
-	$(MAKE) -C $* install
-
-include $(GOROOT)/src/Make.cmd
+$(KERNEL): $(AS)
+	cd as && go build
+	./as/as <$(AS) >$(KERNEL)

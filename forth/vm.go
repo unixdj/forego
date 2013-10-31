@@ -258,68 +258,11 @@ func (vm *VM) _type() {
 	}
 }
 
-/*
-func (vm *VM) doCComma(c Cell) {
-	here := vm.readCell(A_here)
-	vm.writeByte(here, c)
-	vm.writeCell(A_here, here + 1)
-}
-*/
-
-func (vm *VM) doComma(c Cell) {
-	vm.trace("%08x , ", c);
-	here := vm.readCell(A_here)
-	vm.writeCell(here, c)
-	vm.writeCell(A_here, here + cellSize)
-}
-
-// literal
-// Compilation: ( x -- )
-// Run-time: ( -- x )
-// (0100) sssN  nnnn nnnn  nnnn nnnn  nnnn nnnn
-// s...  = shift bits
-// Nn... = number bits
-// (N    = sign, extended left)
-func (vm *VM) literal() {
-	n := vm.stack.pop()
-	for s := litMaxShift; s >= 0; s-- {
-		if n & (1 << uint(s) - 1) == 0 {
-			bits := litSameBits << uint(s)
-			switch n & bits {
-			case 0, bits:
-				vm.doComma(n >> uint(s) & litNumMask | Cell(s) << litShiftShift | instrPush)
-				return
-			}
-			break;
-		}
-	}
-	// can't store number in one instruction, do the "or"
-	vm.doComma(n & (litNumMask >> 1) | instrPush)
-	vm.doComma(n >> litMaxShift | litMaxShift << litShiftShift | instrPush)
-	vm.doComma(0x26)  // or
-}
-
-// compile,
-// Execution: ( xt -- )
-func (vm *VM) compileComma() {
-	a := vm.stack.pop()
-	if a & 1 != 0 {
-		a &^= 1
-		vm.stack.push(a + cellSize)
-		vm.literal()
-	}
-	a = vm.readCell(a)
-	if a == 0 {
-		return
-	}
-	vm.doComma(a)
-}
-
 // execute ( i*x xt -- j*x )
 func (vm *VM) execute() {
 	a := vm.stack.pop()
 	if a & 1 != 0 {
-		a &^= 1
+		a--
 		vm.stack.push(a + cellSize)
 	}
 	a = vm.readCell(a)
@@ -831,8 +774,8 @@ var primitives = []struct{ name string; f func(*VM) } {
 	{ "execute",	(*VM).execute },
 	{ "(find)",	(*VM).find },
 	{ "(trynum)",	(*VM).trynumber },
-	{ "builtin:compile,",	(*VM).compileComma },
-	{ "(literal)",	(*VM).literal },
+	{ "",		(*VM).unimplemented },
+	{ "",		(*VM).unimplemented },
 	{ "dump",	(*VM).dump },
 	{ "",		(*VM).unimplemented },
 	// 0x50
@@ -1005,20 +948,6 @@ func NewVM(in io.Reader, out io.Writer) *VM {
 	copy(vm.Mem[:], kernel)
 
 	vm.trace("hi\n")
-	dh := vm.readCell(A_dicthead)
-	for i, v := range primitives {
-		if v.name == "" { continue }
-		here := vm.readCell(A_here)
-		vm.trace("writing %s to %08x\n", v.name, here)
-		head := here
-		vm.Mem[here] = byte(len(v.name))
-		copy(vm.Mem[here + 1 : ], []byte(v.name))
-		vm.writeCell(A_here, align(here + 1 + Cell(len(v.name))))
-		vm.doComma(dh);
-		dh = head
-		vm.doComma(Cell(i))
-	}
-	vm.writeCell(A_dicthead, dh)
 
 	copy(vm.Mem[ramSize / 2 : ], softcore)
 
