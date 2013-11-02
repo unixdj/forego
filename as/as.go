@@ -36,7 +36,6 @@ type (
 		s string  // source line
 		a Cell    // address
 		d dict    // dictionary of labels
-		e dict    // dictionary of exported symbols
 		u []unres // unresolved
 		i []instr // compiled instructions
 	}
@@ -131,16 +130,16 @@ var (
 		"key",
 		"emit",
 		// compiling!
-		"refill",
-		"parse",
-		"parse-word",
-		".",
-		"words",
+		"(refill)",
+		"(parse)",
+		"(parse-word)",
+		"(.)",
+		"builtin-words",
 		"trace",
 		//
 		"type",
 		"execute",
-		"(find)",
+		"builtin(find)",
 		"(trynum)",
 		"",
 		"",
@@ -267,23 +266,6 @@ func (p *parser) cell(num string) error {
 		return nil
 	}
 	p.store(n)
-	return nil
-}
-
-func (p *parser) export(f []string) error {
-	var addr = p.a
-	switch len(f) {
-	case 2:
-		var err error
-		if addr, err = p.parseNum(f[1]); err != nil {
-			return parseError
-		}
-		fallthrough
-	case 1:
-		p.e[f[0]] = addr
-	default:
-		return parseError
-	}
 	return nil
 }
 
@@ -426,8 +408,6 @@ func (p *parser) doLine() error {
 			return parseError
 		}
 		return p.cell(f[1])
-	case ".EXPORT":
-		return p.export(f[1:])
 	case ".L": // label
 		if len(f) != 2 {
 			return parseError
@@ -464,13 +444,6 @@ func (p *parser) dump() {
 
 package forth
 
-const (
-`)
-	for k, v := range p.e {
-		fmt.Printf("\tA_%s = %#x\n", k, v)
-	}
-	fmt.Print(`)
-
 var kernel = []byte{
 `)
 	for k, v := range p.i {
@@ -485,7 +458,6 @@ var kernel = []byte{
 func main() {
 	var p = &parser{}
 	p.d = make(dict)
-	p.e = make(dict)
 	in := bufio.NewReader(os.Stdin)
 loop:
 	for {

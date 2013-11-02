@@ -69,6 +69,7 @@ dup c@ 80 or over c!
 : 2r@ postpone r> postpone r@ postpone swap postpone dup postpone >r ; immediate
 : 2rdrop postpone rdrop postpone rdrop ; immediate
 
+: . base @ (.) ;
 : cr a emit ;
 : stack depth begin ?dup while dup pick . 1- repeat cr ;
 
@@ -164,7 +165,7 @@ dup c@ 80 or over c!
 : constant value immediate
    does> @ state if postpone literal then ;
 
-: primitive 0 (:) , (;) ;
+: primitive 0 (:) (;) , ;
 : alias 0 (:) ' compile, (;) ;
 
 alias char+ 1+

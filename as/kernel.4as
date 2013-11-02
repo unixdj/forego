@@ -9,7 +9,7 @@
 
 .L l;quit
 	(quit)
-	refill
+	call	refill
 	jz	l;eof
 	call	lineproc
 	PUSH	state
@@ -24,10 +24,10 @@
 	eof
 
 .L lineproc
-	parse-word
+	call	parse-word
 	PICK	1 0
 	jz	2drop,exit
-	(find)
+	call	(find)
 	?dup
 	jz	trynumber
 	1-
@@ -41,6 +41,8 @@
 	execute
 	jmp	lineproc
 .L trynumber
+	PUSH	base
+	@
 	(trynum)
 	jz	notfound
 	PUSH	state
@@ -77,13 +79,10 @@
 
 \ source 0 (input)
 .L #tib[0]
-.EXPORT numberTib0
 	.C	0
 .L tib[0]
-.EXPORT tib0
 	.C	0
 .L >in[0]
-.EXPORT toIn0
 	.C	0
 
 \ ***************************************************************
@@ -118,7 +117,7 @@
 .B 47 '(words)'
 .C w/here
 	nop
-.EXPORT dicthead
+.L dicthead
 	.C	lastword
 
 \ state
@@ -135,16 +134,28 @@
 .C w/state
 	@
 .L source-id
-.EXPORT sourceID
 	.C	0
+
+\ (source)
+.L w/(source)
+.B 8 '(source)'
+.C w/source-id
+	call	.
+.L (source)
+	PUSH	#tib[0]
+	PUSH	source-id
+	@
+	PUSH	c
+	*
+	+
+	exit
 
 \ source
 .L w/source
 .B 6 'source'
-.C w/source-id
+.C w/(source)
 	call	.
-	PUSH	#tib[0]
-	call	>in/internal
+	call	(source)
 	2@
 	exit
 
@@ -153,12 +164,8 @@
 .B 3 '>in'
 .C w/source
 	call	.
-	PUSH	>in[0]
-.L >in/internal
-	PUSH	source-id
-	@
-	PUSH	c
-	*
+	call	(source)
+	PUSH	8
 	+
 	exit
 
@@ -168,7 +175,6 @@
 .C w/>in
 	nop
 .L base
-.EXPORT base
 	.C	a
 
 \ ***************************************************************
@@ -270,8 +276,8 @@
 .B 1 27
 .C w/align
 	call	.
-	parse-word
-	(find)
+	call	parse-word
+	call	(find)
 	jz	notfound
 	\ what's going on above?
 	exit
@@ -382,13 +388,71 @@
 	jz	exit
 	jmp	,
 
+.L w/parse
+.B 5 'parse'
+.C w/compile,
+	call	.
+.L parse
+	call	(source)
+	(parse)
+	exit
+
+.L w/parse-word
+.B a 'parse-word'
+.C w/parse
+	call	.
+.L parse-word
+	PUSH	20
+	jmp	parse
+
+.L w/(find)
+.B 6 '(find)'
+.C w/parse-word
+	call	.
+.L (find)
+	PUSH	dicthead
+	builtin(find)
+	exit
+
+.L w/words
+.B 5 'words'
+.C w/(find)
+	call	.
+	PUSH	dicthead
+	builtin-words
+	exit
+
+.L w/refill
+.B 6 'refill'
+.C w/words
+	call	.
+.L refill
+	PUSH	source-id
+	@
+	jz	refill/doit
+.L refill/fail
+	PUSH	0
+	exit
+.L refill/doit
+	PUSH	fe00
+	(refill)
+	jz	refill/fail
+	PUSH	#tib[0]
+	!
+	PUSH	0
+	PUSH	fe00
+	PUSH	tib[0]
+	2!
+	PUSH	ffffffff
+	exit
+
 \ ***************************************************************
 \ some stack stuff
 
 \ dup ( x -- x x )
 .L w/dup
 .B 3 'dup'
-.C w/compile,
+.C w/refill
 	PICK	1 0
 
 \ over ( x1 x2 -- x1 x2 x1 )
@@ -467,7 +531,3 @@
 	exit
 
 .L l;end
-
-.EXPORT funcpad		fcf8
-.EXPORT pad		fd00
-.EXPORT defaultSource	fe00

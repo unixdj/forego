@@ -20,6 +20,7 @@ const (
 	forthTrue = ^forthFalse
 	stackDepth = 32
 	ramSize = 0x10000	// should be enough for everyone
+	A_funcpad = ramSize - 2 * cellSize
 )
 
 // Word flags
@@ -170,31 +171,170 @@ func (vm *VM) quitHelper() {
 	vm.rstack.clear()
 }
 
+func disas(v Cell) string {
+        var primitives = []string{
+                "nop",
+                "exit",
+                "(abort)",
+                "(quit)",
+                // stack
+                "pick",
+                "roll",
+                "depth",
+                "drop",
+                // 0x08
+                "2drop",
+                "?dup",
+                "nip",
+                "tuck",
+                // rstack
+                ">r",
+                "r>",
+                "r@",
+                "rdrop",
+                // 0x10
+                // basic memory access
+                "@",
+                "!",
+                "c@",
+                "c!",
+                // more memory access
+                "2!",
+                "2@",
+                "+!",
+                "erase",
+                // 0x18
+                "fill",
+                "move",
+                // comparison
+                "=",
+                "<>",
+                "<",
+                ">",
+                "u<",
+                "u>",
+                // 0x20
+                "0<",
+                "0>",
+                // logic
+                "0=",
+                "0<>",
+                // bitwise logic
+                "invert",
+                "and",
+                "or",
+                "xor",
+                // 0x28
+                "lshift",
+                "rshift",
+                "2*",
+                "2/",
+                // arithmetics
+                "1+",
+                "1-",
+                "+",
+                "-",
+                // 0x30
+                "*",
+                "/",
+                "mod",
+                "/mod",
+                "*/",
+                "*/mod",
+                "m*",
+                "um*",
+                // 0x38
+                "fm/mod",
+                "sm/rem",
+                "um/mod",
+                "abs",
+                "",
+                "",
+                "",
+                "",
+                // 0x40
+                // io
+                "key",
+                "emit",
+                // compiling!
+                "(refill)",
+                "(parse)",
+                "(parse-word)",
+                "(.)",
+                "builtin-words",
+                "trace",
+                //
+                "type",
+                "execute",
+                "builtin(find)",
+                "(trynum)",
+                "",
+                "",
+                "dump",
+                "",
+                // 0x50
+                "bye",
+                "eof",
+        }
+
+	switch v>>28 {
+	case 0:
+		if v < Cell(len(primitives)) {
+			return primitives[v]
+		}
+	case 1:
+		return fmt.Sprintf("call %08x", v&0x0fffffff)
+	case 2:
+		return fmt.Sprintf("jmp %08x", v&0x0fffffff)
+	case 3:
+		return fmt.Sprintf("jz %08x", v&0x0fffffff)
+	case 4:
+		v &= 0x0fffffff
+		s := v >> (litSignBit + 1)
+		v &= litNumMask
+		if v & (1<<litSignBit) != 0 {
+			v |= 0xff000000
+		}
+		return fmt.Sprintf("push %08x", v << s)
+	case 5:
+		if v &^ 0xf0033f3f == 0 {
+			return fmt.Sprintf("%s %d from %d in %s",
+				[]string{"pick", "roll"}[v>>17&1],
+				int(v>>8 & 0x3f), int(v & 0x3f),
+				[]string{"stack", "rstack"}[v>>16&1])
+		}
+	}
+	return ""
+}
+
+func printable(c Cell) rune {
+	if c >= 0x20 && c < 0x7f {
+		return rune(c)
+	}
+	return '.'
+}
+
 // dump ( addr-a u -- )
 func (vm *VM) dump() {
 	l := vm.stack.pop() >> 2
 	for a := vm.stack.pop(); l > 0 ; a, l = a+cellSize, l-1 {
 		v := vm.readCell(a)
-		fmt.Fprintf(vm.out, "%08x: %08x [%+q, %+q, %+q, %+q]\n", a, v,
-		    v>>24 & 0xff, v>>16 & 0xff, v>>8 & 0xff, v & 0xff)
+		fmt.Fprintf(vm.out, "%08x: %08x  %c%c%c%c  %s\n",
+		   a, v, printable(v>>24 & 0xff), printable(v>>16 & 0xff),
+		   printable(v>>8 & 0xff), printable(v & 0xff), disas(v))
 	}
 }
 
-// refill ( -- flag )
+// (refill) ( addr -- u -1 | 0 )
 func (vm *VM) refill() {
-	if vm.readCell(A_sourceID) != 0 {
-		vm.stack.push(forthFalse)
-		return
-	}
+	tib := vm.stack.pop()
 	line, _, err := vm.in.ReadLine()
 	if err != nil {
 		vm.stack.push(forthFalse)
 		return
 	}
-	copy(vm.Mem[A_defaultSource:], []byte(line))  // crash!
-	vm.writeCell(A_tib0, A_defaultSource)
-	vm.writeCell(A_numberTib0, Cell(len(line)))
-	vm.writeCell(A_toIn0, 0)
+	copy(vm.Mem[tib:], []byte(line))  // crash!
+	vm.stack.push(Cell(len(line)))
 	vm.stack.push(forthTrue)
 }
 
@@ -205,13 +345,12 @@ func isdelim(b, delim Cell) bool {
 	return b == delim
 }
 
-func (vm *VM) doParse(delim Cell, skip bool) {
-	off := vm.readCell(A_sourceID) * 3 * cellSize
-	ntib := vm.readCell(A_numberTib0 + off)
-	tib := vm.readCell(A_tib0 + off)
-	toin := vm.readCell(A_toIn0 + off)
-	vm.trace("off %08x, ntib %08x, tib %08x, toin %08x; ", off, ntib, tib, toin)
-	for skip && toin < ntib && isdelim(vm.readByte(tib + toin), delim) {
+func (vm *VM) doParse(delim, source Cell) {
+	ntib := vm.readCell(source)
+	tib := vm.readCell(source + cellSize)
+	toin := vm.readCell(source + 2*cellSize)
+	vm.trace("ntib %08x, tib %08x, toin %08x; ", ntib, tib, toin)
+	for delim == ' ' && toin < ntib && isdelim(vm.readByte(tib + toin), delim) {
 		toin++
 	}
 	start := toin
@@ -223,18 +362,20 @@ func (vm *VM) doParse(delim Cell, skip bool) {
 	if toin < ntib {
 		toin++
 	}
-	vm.writeCell(A_toIn0 + off, toin)
+	vm.writeCell(source + 2*cellSize, toin)
 	vm.trace("start %08x, toin %08x, word %s\n", start, toin, vm.readSlice(tib + start, toin - start))
 }
 
 // parse ( char "ccc<char>" -- c-addr u )
 func (vm *VM) parse() {
-	vm.doParse(vm.stack.pop(), false)
+	source := vm.stack.pop()
+	vm.doParse(vm.stack.pop(), source)
 }
 
 // parse-word ( "<spaces>name" -- c-addr u )
 func (vm *VM) parseWord() {
-	vm.doParse(' ', true)
+	source := vm.stack.pop()
+	vm.doParse(' ', source)
 }
 
 func (vm *VM) putc(c Cell) {
@@ -319,17 +460,18 @@ func align(a Cell) Cell {
 	return a - a % cellSize
 }
 
-// (find) ( addr u -- addr u 0 | xt 1 | xt -1 )
+// builtin(find) ( addr u -- addr u 0 | xt 1 | xt -1 )
 func (vm *VM) find() {
+	w := vm.stack.pop()
 	fl := vm.stack.pop()
 	fa := vm.stack.pop()
 	fw := vm.readSlice(fa, fl)
 	vm.trace("word %s\n", fw)
-	for w := vm.readCell(A_dicthead); w != 0; w = vm.readCell(w) {
+	for w := vm.readCell(w); w != 0; w = vm.readCell(w) {
 		l := vm.readByte(w)
-		w++;
-//		vm.trace("@%08x: ", w)
-//		vm.trace("%s <=> %s\n", fw, vm.readSlice(w, l & 0x1f))
+		w++
+		vm.trace("@%08x: ", w)
+		vm.trace("%s <=> %s\n", fw, vm.readSlice(w, l & 0x1f))
 		if weq(fw, vm.readSlice(w, l & 0x1f)) {
 			w = align(w + l & 0x1f + cellSize)
 			if l & 0x40 != 0 {
@@ -350,9 +492,9 @@ func (vm *VM) find() {
 	vm.stack.push(forthFalse)
 }
 
-// words ( -- )
+// builtin-words ( addr -- )
 func (vm *VM) words() {
-	for w := vm.readCell(A_dicthead); w != 0; w = vm.readCell(w) {
+	for w := vm.readCell(vm.stack.pop()); w != 0; w = vm.readCell(w) {
 		l := vm.readByte(w) & 0x1f
 		w++;
 		fmt.Fprintf(vm.out, "%-16s", vm.readSlice(w, l))
@@ -367,10 +509,11 @@ func (vm *VM) setTrace() {
 }
 
 func (vm *VM) trynumber() {
+	base := vm.stack.pop()
 	l := vm.stack.pop()
 	a := vm.stack.pop()
 	s := vm.readSlice(a, l)
-	if n, err := strconv.ParseInt(string(s), int(vm.readCell(A_base)), cellSize * 8 + 1); err == nil {
+	if n, err := strconv.ParseInt(string(s), int(base), cellSize * 8 + 1); err == nil {
 		vm.stack.push(Cell(n))
 		vm.stack.push(forthTrue)
 		return
@@ -601,9 +744,10 @@ func (vm *VM) starSlashMod() {
 	vm.stack.push(Cell(p / c))
 }
 
-// . ( n -- )
+// (.) ( n u -- )
 func (vm *VM) dot() {
-	fmt.Fprintf(vm.out, " %s ", strconv.FormatInt(int64(int(vm.stack.pop())), int(vm.readCell(A_base))))
+	base := int(vm.stack.pop())
+	fmt.Fprintf(vm.out, " %s ", strconv.FormatInt(int64(int(vm.stack.pop())), base))
 }
 
 // pick ( xu ... x1 x0 u -- xu ... x1 x0 xu )
@@ -763,16 +907,16 @@ var primitives = []struct{ name string; f func(*VM) } {
 	{ "key",	(*VM).unimplemented },
 	{ "emit",	(*VM).emit },
 	// compiling!
-	{ "refill",	(*VM).refill },
-	{ "parse",	(*VM).parse },
-	{ "parse-word",	(*VM).parseWord },
-	{ ".",		(*VM).dot },
-	{ "words",	(*VM).words },
+	{ "(refill)",	(*VM).refill },
+	{ "(parse)",	(*VM).parse },
+	{ "(parse-word)",	(*VM).parseWord },
+	{ "(.)",		(*VM).dot },
+	{ "builtin-words",	(*VM).words },
 	{ "trace",	(*VM).setTrace },
 	//
 	{ "type",	(*VM)._type },
 	{ "execute",	(*VM).execute },
-	{ "(find)",	(*VM).find },
+	{ "builtin(find)",	(*VM).find },
 	{ "(trynum)",	(*VM).trynumber },
 	{ "",		(*VM).unimplemented },
 	{ "",		(*VM).unimplemented },
