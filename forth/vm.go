@@ -13,6 +13,8 @@ import (
 )
 
 type Cell uint32
+type SCell int32
+type DCell uint64
 const cellSize = 4
 
 const (
@@ -27,7 +29,6 @@ const (
 const (
 	immediate	= 0x80
 	variable	= 0x40
-	all		= 0xc0
 )
 
 type vmStack []Cell
@@ -202,10 +203,10 @@ func disas(v Cell) string {
                 "2!",
                 "2@",
                 "+!",
-                "erase",
+                "",
                 // 0x18
-                "fill",
-                "move",
+                "",
+                "",
                 // comparison
                 "=",
                 "<>",
@@ -247,7 +248,7 @@ func disas(v Cell) string {
                 "fm/mod",
                 "sm/rem",
                 "um/mod",
-                "abs",
+                "negate",
                 "",
                 "",
                 "",
@@ -264,13 +265,13 @@ func disas(v Cell) string {
                 "builtin-words",
                 "trace",
                 //
-                "type",
-                "execute",
+                "builtin-type",
+                "builtin-execute",
                 "builtin(find)",
-                "(trynum)",
+                "builtin(trynum)",
                 "",
                 "",
-                "dump",
+                "builtin-dump",
                 "",
                 // 0x50
                 "bye",
@@ -298,10 +299,11 @@ func disas(v Cell) string {
 		return fmt.Sprintf("push %08x", v << s)
 	case 5:
 		if v &^ 0xf0033f3f == 0 {
-			return fmt.Sprintf("%s %d from %d in %s",
+			return fmt.Sprintf("%s%s %d %d",
+				[]string{"", "r"}[v>>16&1],
 				[]string{"pick", "roll"}[v>>17&1],
-				int(v>>8 & 0x3f), int(v & 0x3f),
-				[]string{"stack", "rstack"}[v>>16&1])
+				int(v>>8 & 0x3f),
+				int(v & 0x3f))
 		}
 	}
 	return ""
@@ -314,7 +316,7 @@ func printable(c Cell) rune {
 	return '.'
 }
 
-// dump ( addr-a u -- )
+// builtin-dump ( addr-a u -- )
 func (vm *VM) dump() {
 	l := vm.stack.pop() >> 2
 	for a := vm.stack.pop(); l > 0 ; a, l = a+cellSize, l-1 {
@@ -399,7 +401,7 @@ func (vm *VM) _type() {
 	}
 }
 
-// execute ( i*x xt -- j*x )
+// builtin-execute ( i*x xt -- j*x )
 func (vm *VM) execute() {
 	a := vm.stack.pop()
 	if a & 1 != 0 {
@@ -460,7 +462,7 @@ func align(a Cell) Cell {
 	return a - a % cellSize
 }
 
-// builtin(find) ( addr u -- addr u 0 | xt 1 | xt -1 )
+// builtin(find) ( addr u a-addr -- addr u 0 | xt 1 | xt -1 )
 func (vm *VM) find() {
 	w := vm.stack.pop()
 	fl := vm.stack.pop()
@@ -474,7 +476,7 @@ func (vm *VM) find() {
 		vm.trace("%s <=> %s\n", fw, vm.readSlice(w, l & 0x1f))
 		if weq(fw, vm.readSlice(w, l & 0x1f)) {
 			w = align(w + l & 0x1f + cellSize)
-			if l & 0x40 != 0 {
+			if l & variable != 0 {
 				w |= 1
 			}
 			vm.stack.push(w)
@@ -584,14 +586,14 @@ func (vm *VM) notEquals() {
 
 // < ( n1 n2 -- flag )
 func (vm *VM) lessThan() {
-	c := int(vm.stack.pop())
-	vm.stack.push(forthBool(int(vm.stack.pop()) < c))
+	c := SCell(vm.stack.pop())
+	vm.stack.push(forthBool(SCell(vm.stack.pop()) < c))
 }
 
 // > ( n1 n2 -- flag )
 func (vm *VM) greaterThan() {
-	c := int(vm.stack.pop())
-	vm.stack.push(forthBool(int(vm.stack.pop()) > c))
+	c := SCell(vm.stack.pop())
+	vm.stack.push(forthBool(SCell(vm.stack.pop()) > c))
 }
 
 // u< ( u1 u2 -- flag )
@@ -608,12 +610,12 @@ func (vm *VM) uGreaterThan() {
 
 // 0< ( n -- flag )
 func (vm *VM) zeroLess() {
-	vm.stack.push(forthBool(int(vm.stack.pop()) < 0))
+	vm.stack.push(forthBool(SCell(vm.stack.pop()) < 0))
 }
 
 // 0> ( n -- flag )
 func (vm *VM) zeroGreater() {
-	vm.stack.push(forthBool(int(vm.stack.pop()) > 0))
+	vm.stack.push(forthBool(SCell(vm.stack.pop()) > 0))
 }
 
 // 0<> ( x -- flag )
@@ -665,7 +667,7 @@ func (vm *VM) twoStar() {
 
 // 2/ ( x1 -- x2 )
 func (vm *VM) twoSlash() {
-	vm.stack.push(Cell(int(vm.stack.pop()) >> 1))
+	vm.stack.push(Cell(SCell(vm.stack.pop()) >> 1))
 }
 
 // 1+ ( n1|u1 -- n2|u2 )
@@ -696,26 +698,26 @@ func (vm *VM) star() {
 
 // / ( n1 n2 -- n3 )
 func (vm *VM) slash() {
-	c := int(vm.stack.pop())
+	c := SCell(vm.stack.pop())
 	if c == 0 {
 		panic("zero division")
 	}
-	vm.stack.push(Cell(int(vm.stack.pop()) / c))
+	vm.stack.push(Cell(SCell(vm.stack.pop()) / c))
 }
 
 // mod ( n1 n2 -- n3 )
 func (vm *VM) mod() {
-	c := int(vm.stack.pop())
+	c := SCell(vm.stack.pop())
 	if c == 0 {
 		panic("zero division")
 	}
-	vm.stack.push(Cell(int(vm.stack.pop()) % c))
+	vm.stack.push(Cell(SCell(vm.stack.pop()) % c))
 }
 
 // /mod ( n1 n2 -- n3 n4 )
 func (vm *VM) slashMod() {
-	b := int(vm.stack.pop())
-	a := int(vm.stack.pop())
+	b := SCell(vm.stack.pop())
+	a := SCell(vm.stack.pop())
 	if b == 0 {
 		panic("zero division")
 	}
@@ -744,10 +746,27 @@ func (vm *VM) starSlashMod() {
 	vm.stack.push(Cell(p / c))
 }
 
+// um/mod ( ud n2 -- n3 n4 )
+func (vm *VM) umSlashMod() {
+	b := DCell(vm.stack.pop())
+	a := DCell(vm.stack.pop() << 32)
+	a |= DCell(vm.stack.pop())
+	if b == 0 {
+		panic("zero division")
+	}
+	vm.stack.push(Cell(a % b))
+	vm.stack.push(Cell(a / b))
+}
+
+// negate ( n1 -- n2 )
+func (vm *VM) negate() {
+	vm.stack.push(Cell(-SCell(vm.stack.pop())))
+}
+
 // (.) ( n u -- )
 func (vm *VM) dot() {
 	base := int(vm.stack.pop())
-	fmt.Fprintf(vm.out, " %s ", strconv.FormatInt(int64(int(vm.stack.pop())), base))
+	fmt.Fprintf(vm.out, " %s ", strconv.FormatInt(int64(SCell(vm.stack.pop())), base))
 }
 
 // pick ( xu ... x1 x0 u -- xu ... x1 x0 xu )
@@ -852,10 +871,10 @@ var primitives = []struct{ name string; f func(*VM) } {
 	{ "2!",		(*VM).twoStore },
 	{ "2@",		(*VM).twoFetch },
 	{ "+!",		(*VM).plusStore },
-	{ "erase",	(*VM).unimplemented },
+	{ "",		(*VM).unimplemented },
 	// 0x18
-	{ "fill",	(*VM).unimplemented },
-	{ "move",	(*VM).unimplemented },
+	{ "",		(*VM).unimplemented },
+	{ "",		(*VM).unimplemented },
 	// comparison
 	{ "=",		(*VM).equals },
 	{ "<>",		(*VM).notEquals },
@@ -896,8 +915,8 @@ var primitives = []struct{ name string; f func(*VM) } {
 	// 0x38
 	{ "fm/mod",	(*VM).unimplemented },
 	{ "sm/rem",	(*VM).unimplemented },
-	{ "um/mod",	(*VM).unimplemented },
-	{ "abs",	(*VM).unimplemented },
+	{ "um/mod",	(*VM).umSlashMod },
+	{ "negate",	(*VM).negate },
 	{ "",		(*VM).unimplemented },
 	{ "",		(*VM).unimplemented },
 	{ "",		(*VM).unimplemented },
@@ -914,13 +933,13 @@ var primitives = []struct{ name string; f func(*VM) } {
 	{ "builtin-words",	(*VM).words },
 	{ "trace",	(*VM).setTrace },
 	//
-	{ "type",	(*VM)._type },
-	{ "execute",	(*VM).execute },
+	{ "builtin-type",	(*VM)._type },
+	{ "builtin-execute",	(*VM).execute },
 	{ "builtin(find)",	(*VM).find },
-	{ "(trynum)",	(*VM).trynumber },
+	{ "builtin(trynum)",	(*VM).trynumber },
 	{ "",		(*VM).unimplemented },
 	{ "",		(*VM).unimplemented },
-	{ "dump",	(*VM).dump },
+	{ "builtin-dump",	(*VM).dump },
 	{ "",		(*VM).unimplemented },
 	// 0x50
 	{ "bye",	(*VM).bye },
@@ -971,12 +990,11 @@ const (
 // (N    = sign, extended left)
 func (vm *VM) push(param Cell) {
 	s := param >> (litSignBit + 1)
-	vm.trace("push: param %08x, shift %d => ", param, s)
 	param &= litNumMask
 	if param & (1<<litSignBit) != 0 {
 		param |= ^Cell(litNumMask)
 	}
-	vm.trace("%08x\n", param << s)
+	vm.trace("push %08x\n", param << s)
 	vm.stack.push(param << s)
 }
 
@@ -986,11 +1004,11 @@ func (vm *VM) push(param Cell) {
 // w = width
 // f = from
 func (vm *VM) pickRoll(param Cell) {
-	vm.trace("%s %d from %d in %s\n",
+	vm.trace("%s%s %d %d\n",
+		[]string{"", "r"}[param>>16&1],
 		[]string{"pick", "roll"}[param>>17&1],
 		int(param>>8 & 0x3f),
-		int(param & 0x3f),
-		[]string{"stack", "rstack"}[param>>16&1])
+		int(param & 0x3f))
 	s := []*vmStack{ &vm.stack, &vm.rstack }[param>>16 & 1]
 	f := []func(*vmStack, int, int){ (*vmStack).pick, (*vmStack).roll }[param>>17 & 1]
 	f(s, int(param>>8 & 0x3f), int(param & 0x3f))
@@ -1064,10 +1082,16 @@ func (vm *VM) step() (ret bool) {
 	}
 	vm.pc += cellSize
 	instructions[i](vm, c & instrParamMask)
-	for _, v := range(vm.stack) {
-		vm.trace(" %08x", v)
+	if vm.debug {
+		for _, v := range(vm.stack) {
+			vm.trace("%08x ", v)
+		}
+		vm.trace(" R:")
+		for _, v := range(vm.rstack) {
+			vm.trace(" %08x", v)
+		}
+		vm.trace("\n")
 	}
-	vm.trace("\n")
 	return true
 }
 

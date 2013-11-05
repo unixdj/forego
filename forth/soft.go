@@ -71,7 +71,6 @@ dup c@ 80 or over c!
 
 : . base @ (.) ;
 : cr a emit ;
-: stack depth begin ?dup while dup pick . 1- repeat cr ;
 
 : i postpone r@ ; immediate
 : (do) postpone begin postpone 2>r ;
@@ -110,12 +109,15 @@ dup c@ 80 or over c!
 : hex 10 base ! ;
 : decimal a base ! ;
 
-: bl 20 ;
+\ : bl 20 ;
+\ we need:
+\	20 constant bl
+: bl 20 state if postpone literal then ; immediate
 
 : <= > 0= ;
 : >= < 0= ;
 
-: dumplast (words) @ here over - dump ;
+: dumplast (words) @ here over - builtin-dump ;
 
 \ Now we have loops and some basics.  time to define a more-real compiler.
 
@@ -165,8 +167,23 @@ dup c@ 80 or over c!
 : constant value immediate
    does> @ state if postpone literal then ;
 
-: primitive 0 (:) (;) , ;
+: :1; 0 (:) (;) ;
+: primitive :1; , ;
 : alias 0 (:) ' compile, (;) ;
+
+: .s depth 0 ?do i pick . loop cr ;
+: type 0 ?do dup c@ emit 1+ loop drop ;
+: space bl emit ;
+: spaces 0 ?do space loop ;
+
+: sliteral
+   postpone ahead postpone begin swap
+   2over (s,) align
+   postpone then postpone literal postpone literal drop
+; immediate
+
+: s"  [char] " parse  postpone sliteral ; immediate
+: ."  postpone s"     postpone type     ; immediate
 
 alias char+ 1+
 

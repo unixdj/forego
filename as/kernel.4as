@@ -18,7 +18,7 @@
 	jz	l;quit
 	PUSH	s"ok:"
 	PUSH	4
-	type
+	builtin-type
 	jmp	l;quit
 .L l;eof
 	eof
@@ -38,12 +38,12 @@
 	call	compile,
 	jmp	lineproc
 .L exec
-	execute
+	builtin-execute
 	jmp	lineproc
 .L trynumber
 	PUSH	base
 	@
-	(trynum)
+	builtin(trynum)
 	jz	notfound
 	PUSH	state
 	@
@@ -56,10 +56,10 @@
 .L notfound
 	PUSH	a
 	emit
-	type
+	builtin-type
 	PUSH	s"?"
 	PUSH	4
-	type
+	builtin-type
 	jmp	l;abort
 
 \ "ok: "
@@ -422,9 +422,14 @@
 	builtin-words
 	exit
 
+.L w/execute
+.B 7 'execute'
+.C w/words
+	builtin-execute
+
 .L w/refill
 .B 6 'refill'
-.C w/words
+.C w/execute
 	call	.
 .L refill
 	PUSH	source-id
@@ -493,7 +498,7 @@
 
 \ 2swap ( x1 x2 x3 x4 -- x3 x4 x1 x2 )
 .L w/2swap
-.B 5 '2over'
+.B 5 '2swap'
 .C w/2over
 	ROLL	2 2
 
