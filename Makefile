@@ -3,12 +3,14 @@
 # license that can be found in the LICENSE file.
 
 TARG	= forego
-KERNEL	= forth/kern.go
+KERNEL	= forth/kern.new
 AS	= as/kernel.4as
+KSRC	= forth/boot.4th
 
-all: $(KERNEL)
+all:
 	go build
 
-$(KERNEL): $(AS)
-	cd as && go build
-	./as/as <$(AS) >$(KERNEL)
+kernel: $(KERNEL)
+
+$(KERNEL): $(KSRC)
+	./bootstrap/bootstrap <$(KSRC) >$(KERNEL)

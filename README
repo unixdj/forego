@@ -12,8 +12,16 @@ happened to me, but I had no actual reason to do it until I
 started searching for a Go learning project.
 
 
-What?
------
+And?
+----
+
+Lessons learned: writing a VM without performance constrains or
+a crude assembler is easy, wrapping your head around multiple
+run times of Forth compiling words is less so.
+
+
+So What Is It?
+--------------
 
 Forego is a naive implementation of a Forth virtual machine in Go
 that I hacked up in a week or so.  Here are its main features and
@@ -21,34 +29,28 @@ misfeatures:
 
 The Good:
 
-- The compiler and parser are mostly ready.  Some supported words
-  include:
-    : ; [ ] , ' ['] char [char] compile, literal postpone
-    immediate parse
+- The compiler, assembler, parser (except numerals), main loop
+  (except line input) and disassembler are now written in Forth.
+  Some supported words include:
+    : :noname ; ;code [ ] , ' ['] char [char] compile, evaluate
+    literal postpone immediate parse parse-word s" ."
     value allot variable constant create does>
+    type . ? <# # #s hold sign #> dump dump2go words
     if else then begin while repeat until again ahead do ?do loop
-    unloop leave exit quit abort bye
+    +loop i j unloop leave case endcase of endof
+    exit quit abort bye
   ...and those are written in Forth.  Type "words" at the prompt
   to see the whole list.
 
 The Bad:
 
-- It doesn't support the full CORE word set yet.
+- It doesn't support the full CORE word set yet.  Most of it is
+  already in though.  But I don't promise full ANS compliance.
 
-- Some parts which should be written in Forth are still in Go,
-  namely dictionary traversal, parser and conversion from number
-  to string and back.  Consequently, the VM knows stuff about the
-  Forth system it shouldn't know, like the location of HERE and
-  SOURCE.  Some words have two implementations at the moment, one
-  in Go and another in Forth (except : and ; that have two Forth
-  implementations).
+- The parts which should be written in Forth but are still in Go
+  are line input and numeral parsing.
 
-- The "kernel" ("machine" code) and "softcore" (initial Forth
-  code to run) are hardcoded in the package.
-
-- You can't bootstrap the system from scratch.  There are enough
-  Forth words to develop the rest of the compiler, but it's not
-  done yet.
+- The "kernel" ("machine" code) is hardcoded in the package.
 
 - It's probably damn slow.
 

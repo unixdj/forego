@@ -1,4 +1,4 @@
-// Copyright 2011 Vadim Vygonets. All rights reserved.
+// Copyright 2011, 2013 Vadim Vygonets. All rights reserved.
 // Use of this source code is governed by the Bugroff
 // license that can be found in the LICENSE file.
 
@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 )
 
 type Cell uint32
@@ -21,8 +20,8 @@ const (
 	forthFalse = Cell(0)
 	forthTrue = ^forthFalse
 	stackDepth = 32
-	ramSize = 0x10000	// should be enough for everyone
-	A_funcpad = ramSize - 2 * cellSize
+	MemSize = 0x40000	// should be enough for everyone
+	A_funcpad = MemSize - 2 * cellSize
 )
 
 // Word flags
@@ -39,7 +38,7 @@ type VM struct {
 	pc, lastpc	Cell		// program counter
 	stack, rstack	vmStack
 	debug		bool
-	Mem		[ramSize]byte
+	Mem		[MemSize]byte
 }
 
 // stack basics
@@ -94,14 +93,14 @@ func (s *vmStack) roll(size, from int) {
 
 // memory ops with address checking
 func (vm *VM) readByte(a Cell) Cell {
-	if a >= ramSize {
+	if a >= MemSize {
 		panic(fmt.Sprintf("illegal address %08x", a))
 	}
 	return Cell(vm.Mem[a])
 }
 
 func (vm *VM) readCell(a Cell) Cell {
-	if a >= ramSize {
+	if a >= MemSize {
 		panic(fmt.Sprintf("illegal address %08x", a))
 	} else if a % cellSize != 0 {
 		panic(fmt.Sprintf("address %08x not aligned", a))
@@ -115,14 +114,14 @@ func (vm *VM) readCell(a Cell) Cell {
 }
 
 func (vm *VM) writeByte(a Cell, v Cell) {
-	if a >= ramSize {
+	if a >= MemSize {
 		panic(fmt.Sprintf("illegal address %08x", a))
 	}
 	vm.Mem[a] = byte(v)
 }
 
 func (vm *VM) writeCell(a Cell, v Cell) {
-	if a > ramSize - cellSize {
+	if a > MemSize - cellSize {
 		panic(fmt.Sprintf("illegal address %08x", a))
 	} else if a % cellSize != 0 {
 		panic(fmt.Sprintf("address %08x not aligned", a))
@@ -131,7 +130,7 @@ func (vm *VM) writeCell(a Cell, v Cell) {
 }
 
 func (vm *VM) readSlice(a, l Cell) []byte {
-	if a >= ramSize || a + l > ramSize {
+	if a >= MemSize || a + l > MemSize {
 		panic(fmt.Sprintf("illegal address %08x", a))
 	}
 	return vm.Mem[a : a+l]
@@ -335,7 +334,9 @@ func (vm *VM) refill() {
 		vm.stack.push(forthFalse)
 		return
 	}
-	copy(vm.Mem[tib:], []byte(line))  // crash!
+	for i := 0; i < len(line); i++ {
+		vm.writeByte(tib + Cell(i), Cell(line[i]))
+	}
 	vm.stack.push(Cell(len(line)))
 	vm.stack.push(forthTrue)
 }
@@ -389,6 +390,17 @@ func (vm *VM) putc(c Cell) {
 
 func (vm *VM) emit () {
 	vm.putc(vm.stack.pop())
+}
+
+func (vm *VM) key() {
+	switch b, err := vm.in.ReadByte(); err {
+	case nil:
+		vm.stack.push(Cell(b))
+	case io.EOF:
+		vm.stack.push(Cell(forthTrue))
+	default:
+		panic(err)
+	}
 }
 
 func (vm *VM) _type() {
@@ -923,7 +935,7 @@ var primitives = []struct{ name string; f func(*VM) } {
 	{ "",		(*VM).unimplemented },
 	// 0x40
 	// io
-	{ "key",	(*VM).unimplemented },
+	{ "key",	(*VM).key },
 	{ "emit",	(*VM).emit },
 	// compiling!
 	{ "(refill)",	(*VM).refill },
@@ -1107,17 +1119,13 @@ func (vm *VM) Run() {
 
 func NewVM(in io.Reader, out io.Writer) *VM {
 	vm := &VM{
-		in: *bufio.NewReader(io.MultiReader(strings.NewReader(fmt.Sprintf("%d %d evaluate\n", ramSize / 2, len(softcore))), in)),
+		in: *bufio.NewReader(in),
 		out: out,
 		stack: make([]Cell, 0, stackDepth),
 		rstack: make([]Cell, 0, stackDepth),
 		//debug: true,
 	}
 	copy(vm.Mem[:], kernel)
-
 	vm.trace("hi\n")
-
-	copy(vm.Mem[ramSize / 2 : ], softcore)
-
 	return vm
 }

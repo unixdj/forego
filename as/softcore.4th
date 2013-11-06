@@ -1,10 +1,3 @@
-// Copyright 2011 Vadim Vygonets. All rights reserved.
-// Use of this source code is governed by the Bugroff
-// license that can be found in the LICENSE file.
-
-package forth
-
-var softcore = `
 1 2* 2* 2* 2* base !
 here 013a0000 ,
 (words) @ , (words) !
@@ -208,4 +201,3 @@ alias char+ 1+
 ;
 
 decimal
-`

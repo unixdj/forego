@@ -1,0 +1,5 @@
+Historical, was used for bootstrapping.
+
+as.go		assembler
+kernel.4as	assembly source of the kernel
+softcore.4th	forth source of the rest
