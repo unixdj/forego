@@ -43,6 +43,7 @@ alias ;; ; immediate
    target if 0 to here target jmp, then
 ;
 
+\ this is used instead of quit to handle running under evaluate
 : do-quit  ( xt -- )
    (quit) [ target 10 + ] literal >r
    source-id if
@@ -167,7 +168,7 @@ alias char+ 1+
 \ ***************************************************************
 \ execute
 
-: decode-push
+: decode-push ( x -- u )
    dup 00ffffff and
    over 01000000 and if ff000000 or then
    swap 19 rshift 7 and lshift
@@ -207,7 +208,7 @@ hex
 
 create (die-#tiben) 6 cells allot
 
-: (source)
+: (source)  ( -- a-addr )
    (die-#tiben) source-id 1+ c * + ;
 
 : source (source) 2@ ;
@@ -222,7 +223,7 @@ create (die-#tiben) 6 cells allot
 : ,  ( x -- )
    here tuck ! cell+ to here ;
 
-: c,  ( x -- )
+: c,  ( char -- )
    here tuck c! char+ to here ;
 
 : s,  ( addr u -- )
@@ -263,6 +264,24 @@ alias primitive, ,
 
 \ ***************************************************************
 \ parser and compiler
+
+\ word structure:
+\	flags|namelen	byte
+\	name		byte{1,31}
+\	align?		byte{0,3}
+\	prev		Cell
+\	codeword	Cell
+\	data?		Cell*
+\	code?		Cell*
+\ flags:
+\	0x80		immediate
+\	0x40		variable
+\	0x20		unused/reserved
+\	0x1f		len(name)
+\ codeword can be 0 (nop), a call to code or anything else
+
+\ xt (execution token) is the address of the codeword,
+\ "or"ed with 1 in case the variable flag is set
 
 : (scan)  ( char xt c-addr c-addr -- c-addr )
    >r >r
