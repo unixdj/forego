@@ -37,6 +37,16 @@ func (s *vmStack) pop() Cell {
 	return c
 }
 
+func (s *vmStack) pushd(d DCell) {
+	s.push(Cell(d))
+	s.push(Cell(d) >> cellBits)
+}
+
+func (s *vmStack) popd() DCell {
+	d := DCell(s.pop()) << cellBits
+	return d | DCell(s.pop())
+}
+
 func (s *vmStack) peek() Cell {
 	s.need(1, 0)
 	return (*s)[len(*s)-1]

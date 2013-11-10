@@ -19,6 +19,7 @@ type (
 
 const (
 	cellSize   = 4
+	cellBits   = 32
 	forthFalse = Cell(0)
 	forthTrue  = ^forthFalse
 	MemSize    = 0x40000
@@ -174,6 +175,23 @@ func (vm *VM) trace(format string, a ...interface{}) {
 	}
 }
 
+func (vm *VM) instr() {
+	vm.lastpc = vm.pc
+	c := vm.readCell(vm.pc)
+	i := c & instrMask >> instrShift
+	vm.trace("@ %08x: ", vm.pc)
+	if i >= Cell(len(instructions)) {
+		panic(fmt.Sprintf("illegal instruction %08x", c))
+	}
+	vm.pc += cellSize
+	instructions[i](vm, c&instrParamMask)
+	if vm.pc >= MemSize {
+		panic(fmt.Sprintf("illegal address %08x", vm.pc))
+	} else if vm.pc%cellSize != 0 {
+		panic(fmt.Sprintf("address %08x not aligned", vm.pc))
+	}
+}
+
 func (vm *VM) step() (ret bool) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -197,15 +215,7 @@ func (vm *VM) step() (ret bool) {
 		}
 	}()
 	ret = true
-	vm.lastpc = vm.pc
-	c := vm.readCell(vm.pc)
-	i := c & instrMask >> instrShift
-	vm.trace("@ %08x: ", vm.pc)
-	if i >= Cell(len(instructions)) {
-		panic(fmt.Sprintf("illegal instruction %08x", c))
-	}
-	vm.pc += cellSize
-	instructions[i](vm, c&instrParamMask)
+	vm.instr()
 	if vm.debug {
 		for _, v := range vm.stack {
 			vm.trace("%08x ", v)

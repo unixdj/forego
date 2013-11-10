@@ -24,31 +24,31 @@ So What Is It?
 --------------
 
 Forego is a naive implementation of a Forth virtual machine in Go
-that I hacked up in a week or so.  Here are its main features and
-misfeatures:
+that I hacked up in a month or so.  Here are its main features
+and misfeatures:
 
 The Good:
 
-- The compiler, assembler, parser (except numerals), main loop
-  (except line input) and disassembler are now written in Forth.
-  Some supported words include:
-    : :noname ; ;code [ ] , ' ['] char [char] compile, evaluate
-    literal postpone immediate parse parse-word s" ."
-    value allot variable constant create does>
-    type . ? <# # #s hold sign #> dump dump2go words
-    if else then begin while repeat until again ahead do ?do loop
-    +loop i j unloop leave case endcase of endof
-    exit quit abort bye
+- The compiler, assembler, parser, main loop and disassembler are
+  now written in Forth.  It has (my understanding of) the full
+  CORE wordset and then some, like:
+    .( .r u.r :noname compile, parse parse-name refill source-id
+    to value within \
+    pick roll ?do again case endcase of endof
+    .s ? dump words ;code ahead bye state
+    /string cmove cmove> sliteral
   ...and those are written in Forth.  Type "words" at the prompt
   to see the whole list.
 
+The Ambiguous:
+
+- It has no file support and no interaction with the outside
+  world except key and emit, so untrusted code will have to
+  overflow a buffer in xterm or something to exploit your box.
+
 The Bad:
 
-- It doesn't support the full CORE word set yet.  Most of it is
-  already in though.  But I don't promise full ANS compliance.
-
-- The parts which should be written in Forth but are still in Go
-  are line input and numeral parsing.
+- The VM does not resemble real hardware at all.
 
 - The "kernel" ("machine" code) is hardcoded in the package.
 

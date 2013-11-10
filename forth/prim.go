@@ -4,10 +4,7 @@
 
 package forth
 
-import (
-	"io"
-	"strconv"
-)
+import "io"
 
 func (vm *VM) unimplemented() {
 	panic("unimplemented")
@@ -300,33 +297,70 @@ func (vm *VM) slashMod() {
 
 // */ ( n1 n2 n3 -- n4 )
 func (vm *VM) starSlash() {
-	c := SDCell(vm.stack.pop())
+	c := SDCell(SCell(vm.stack.pop()))
 	if c == 0 {
 		panic("zero division")
 	}
-	p := SDCell(vm.stack.pop()) * SDCell(vm.stack.pop())
+	p := SDCell(SCell(vm.stack.pop())) * SDCell(SCell(vm.stack.pop()))
 	vm.stack.push(Cell(p / c))
 }
 
 // */mod ( n1 n2 n3 -- n4 n5 )
 func (vm *VM) starSlashMod() {
-	c := SDCell(vm.stack.pop())
+	c := SDCell(SCell(vm.stack.pop()))
 	if c == 0 {
 		panic("zero division")
 	}
-	p := SDCell(vm.stack.pop()) * SDCell(vm.stack.pop())
+	p := SDCell(SCell(vm.stack.pop())) * SDCell(SCell(vm.stack.pop()))
 	vm.stack.push(Cell(p % c))
 	vm.stack.push(Cell(p / c))
+}
+
+// m* ( n1 n2 -- d )
+func (vm *VM) mStar() {
+	vm.stack.pushd(DCell(SDCell(SCell(vm.stack.pop())) *
+		SDCell(SCell(vm.stack.pop()))))
+}
+
+// um* ( u1 u2 -- ud )
+func (vm *VM) umStar() {
+	vm.stack.pushd(DCell(vm.stack.pop()) * DCell(vm.stack.pop()))
+}
+
+// fm/mod ( d1 n1 -- n2 n3 )
+func (vm *VM) fmSlashMod() {
+	// (a - (a<0 ? b-1 : 0)) / b
+	b := SDCell(SCell(vm.stack.pop()))
+	if b == 0 {
+		panic("zero division")
+	}
+	a := SDCell(SCell(vm.stack.popd()))
+	q := a / b
+	if (a%b != 0) && ((a < 0) != (b < 0)) {
+		q--
+	}
+	vm.stack.push(Cell(a - (b * q)))
+	vm.stack.push(Cell(q))
+}
+
+// sm/rem ( d1 n1 -- n2 n3 )
+func (vm *VM) smSlashRem() {
+	b := SDCell(SCell(vm.stack.pop()))
+	if b == 0 {
+		panic("zero division")
+	}
+	a := SDCell(vm.stack.popd())
+	vm.stack.push(Cell(a % b))
+	vm.stack.push(Cell(a / b))
 }
 
 // um/mod ( ud n2 -- n3 n4 )
 func (vm *VM) umSlashMod() {
 	b := DCell(vm.stack.pop())
-	a := DCell(vm.stack.pop() << 32)
-	a |= DCell(vm.stack.pop())
 	if b == 0 {
 		panic("zero division")
 	}
+	a := vm.stack.popd()
 	vm.stack.push(Cell(a % b))
 	vm.stack.push(Cell(a / b))
 }
@@ -334,6 +368,33 @@ func (vm *VM) umSlashMod() {
 // negate ( n1 -- n2 )
 func (vm *VM) negate() {
 	vm.stack.push(Cell(-SCell(vm.stack.pop())))
+}
+
+// ud+ ( ud1 ud2 -- ud3 )
+func (vm *VM) udPlus() {
+	vm.stack.pushd(vm.stack.popd() + vm.stack.popd())
+}
+
+// ud- ( ud1 ud2 -- ud3 )
+func (vm *VM) udMinus() {
+	d := vm.stack.popd()
+	vm.stack.pushd(vm.stack.popd() - d)
+}
+
+// ud* ( ud1 ud2 -- ud3 )
+func (vm *VM) udStar() {
+	vm.stack.pushd(vm.stack.popd() * vm.stack.popd())
+}
+
+// ud/mod ( ud1 ud2 -- ud3 ud4 )
+func (vm *VM) udSlashMod() {
+	b := vm.stack.popd()
+	if b == 0 {
+		panic("zero division")
+	}
+	a := vm.stack.popd()
+	vm.stack.pushd(a % b)
+	vm.stack.pushd(a / b)
 }
 
 // key ( -- char )
@@ -356,40 +417,9 @@ func (vm *VM) emit() {
 	}
 }
 
-// (refill) ( addr -- u -1 | 0 )
-func (vm *VM) refill() {
-	tib := vm.stack.pop()
-	line, _, err := vm.in.ReadLine()
-	if err != nil {
-		vm.stack.push(forthFalse)
-		return
-	}
-	for i := 0; i < len(line); i++ {
-		vm.writeByte(tib+Cell(i), Cell(line[i]))
-	}
-	vm.stack.push(Cell(len(line)))
-	vm.stack.push(forthTrue)
-}
-
 // trace ( flag -- )
 func (vm *VM) setTrace() {
 	vm.debug = vm.stack.pop() != 0
-}
-
-// (trynum) ( c-addr u1 u2 -- x -1 | c-addr u1 0)
-func (vm *VM) trynumber() {
-	base := vm.stack.pop()
-	l := vm.stack.pop()
-	a := vm.stack.pop()
-	s := vm.readSlice(a, l)
-	if n, err := strconv.ParseInt(string(s), int(base), cellSize*8+1); err == nil {
-		vm.stack.push(Cell(n))
-		vm.stack.push(forthTrue)
-		return
-	}
-	vm.stack.push(a)
-	vm.stack.push(l)
-	vm.stack.push(forthFalse)
 }
 
 // bye ( -- )
@@ -474,23 +504,23 @@ var primitives = []struct {
 	{"/mod", (*VM).slashMod},
 	{"*/", (*VM).starSlash},
 	{"*/mod", (*VM).starSlashMod},
-	{"m*", (*VM).unimplemented},
-	{"um*", (*VM).unimplemented},
+	{"m*", (*VM).mStar},
+	{"um*", (*VM).umStar},
 	// 0x38
-	{"fm/mod", (*VM).unimplemented},
-	{"sm/rem", (*VM).unimplemented},
+	{"fm/mod", (*VM).fmSlashMod},
+	{"sm/rem", (*VM).smSlashRem},
 	{"um/mod", (*VM).umSlashMod},
 	{"negate", (*VM).negate},
-	{"", (*VM).unimplemented},
-	{"", (*VM).unimplemented},
-	{"", (*VM).unimplemented},
-	{"", (*VM).unimplemented},
+	{"ud+", (*VM).udPlus},
+	{"ud-", (*VM).udMinus},
+	{"ud*", (*VM).udStar},
+	{"ud/mod", (*VM).udSlashMod},
 	// 0x40
 	// io
 	{"key", (*VM).key},
 	{"emit", (*VM).emit},
 	// compiling!
-	{"(refill)", (*VM).refill},
+	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
@@ -500,7 +530,7 @@ var primitives = []struct {
 	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
-	{"builtin(trynum)", (*VM).trynumber},
+	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
 	{"", (*VM).unimplemented},
