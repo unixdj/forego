@@ -287,10 +287,10 @@ func (vm *VM) mod() {
 // /mod ( n1 n2 -- n3 n4 )
 func (vm *VM) slashMod() {
 	b := SCell(vm.stack.pop())
-	a := SCell(vm.stack.pop())
 	if b == 0 {
 		panic("zero division")
 	}
+	a := SCell(vm.stack.pop())
 	vm.stack.push(Cell(a % b))
 	vm.stack.push(Cell(a / b))
 }

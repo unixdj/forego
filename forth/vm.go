@@ -166,7 +166,6 @@ const (
 const (
 	instrShift     = 28
 	instrParamMask = (1 << instrShift) - 1
-	instrMask      = ^Cell(instrParamMask)
 )
 
 func (vm *VM) trace(format string, a ...interface{}) {
@@ -178,7 +177,7 @@ func (vm *VM) trace(format string, a ...interface{}) {
 func (vm *VM) instr() {
 	vm.lastpc = vm.pc
 	c := vm.readCell(vm.pc)
-	i := c & instrMask >> instrShift
+	i := c >> instrShift
 	vm.trace("@ %08x: ", vm.pc)
 	if i >= Cell(len(instructions)) {
 		panic(fmt.Sprintf("illegal instruction %08x", c))

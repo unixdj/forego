@@ -13,4 +13,4 @@ all:
 kernel: $(KERNEL)
 
 $(KERNEL): $(KSRC)
-	./bootstrap/bootstrap <$(KSRC) >$(KERNEL)
+	go run ./bootstrap/bootstrap.go <$(KSRC) >$(KERNEL)

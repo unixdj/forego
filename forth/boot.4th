@@ -6,8 +6,8 @@
 \ This file bootstraps a running Forth VM image.  It does so by
 \ compiling words and microcode to the other half of memory (the
 \ begining of the upper half if curretly running in the lower
-\ half, and address 0 otherwise), the switching to the new
-\ microcode and compilig more words.  To generate Go source file
+\ half, and address 0 otherwise), then switching to the new
+\ microcode and compiling more words.  To generate Go source file
 \ containing the kernel, evaluate this file twice, then say:
 
 \	0 here dump2go bye
@@ -104,8 +104,8 @@ f primitive rdrop	( R: x -- )
 25 primitive and	( x1 x2 -- x3 )
 26 primitive or		( x1 x2 -- x3 )
 27 primitive xor	( x1 x2 -- x3 )
-28 primitive lshift	( x1 -- x2 )
-29 primitive rshift	( x1 -- x2 )
+28 primitive lshift	( x1 u -- x2 )
+29 primitive rshift	( x1 u -- x2 )
 2a primitive 2*		( x1 -- x2 )
 2b primitive 2/		( x1 -- x2 )
 2c primitive 1+		( n1|u1 -- n2|u2 )
@@ -124,7 +124,7 @@ f primitive rdrop	( R: x -- )
 38 primitive fm/mod	( d1 n1 -- n2 n3 )
 39 primitive sm/rem	( d1 n1 -- n2 n3 )
 3a primitive um/mod	( ud n1 -- n2 n3 )
-3b primitive negate	( n1 -- 2 )
+3b primitive negate	( n1 -- n2 )
 3c primitive ud+	( ud1 ud2 -- ud3 )
 3d primitive ud-	( ud1 ud2 -- ud3 )
 3e primitive ud*	( ud1 ud2 -- ud3 )
@@ -168,41 +168,47 @@ alias char+ 1+
 : cells 2 lshift ;
 
 : cr a emit ;
-: type 0 ?do dup c@ emit char+ loop drop ;
 
-: cmove
+: type  ( c-addr u -- )
+   0 ?do
+     dup c@ emit char+ loop
+  drop
+;
+
+: cmove  ( c-addr1 c-addr2 u -- )
    0 ?do
      over c@ over c! char+ swap char+ swap loop
    2drop
 ;
 
-: cmove>
+: cmove>  ( c-addr1 c-addr2 u -- )
    dup >r + swap r@ + swap r>
    0 ?do
      swap 1- tuck c@ swap 1- tuck c! loop
    2drop
 ;
 
-: move 0 2over u< nip if cmove> else cmove then ;
+: move  ( addr1 addr2 u -- )
+   0 2over u< nip if cmove> else cmove then ;
 
 \ ***************************************************************
 \ execute
 
-: decode-push ( x -- u )
+: decode-push  ( x -- u )
    dup 00ffffff and
    over 01000000 and if ff000000 or then
-   swap 19 rshift 7 and lshift
+   swap 19 rshift lshift
 ;
 
 : execute  ( i*x xt -- j*x )
-   dup 1 and if 1- dup cell+ swap then
+   dup 1 and if 1- dup cell+ swap then			\ variable
    @ ?dup if								\ nop
-     dup 1 = if drop rdrop exit then					\ exit
+     dup        1 = if             drop      rdrop         exit then	\ exit
      dup f0000000 and
-     dup 10000000 = if xor >r exit then					\ call
-     dup 20000000 = if xor rdrop >r exit then				\ jmp
+     dup 10000000 = if xor                         >r      exit then	\ call
+     dup 20000000 = if xor                   rdrop >r      exit then	\ jmp
      dup 30000000 = if xor swap if drop else rdrop >r then exit then	\ jz
-     dup 40000000 = if drop decode-push exit then			\ push
+     dup 40000000 = if xor decode-push                     exit then	\ push
      drop [ here 2 cells + ] literal ! [ 0 , ]		\ prim/pick/roll -> pad
    then
 ;
@@ -235,7 +241,7 @@ create (die-#tiben) 6 cells allot
 : >in (source) 8 + ;
 
 : aligned  ( addr -- a-addr )
-   3 + fffffffc and exit ;
+   3 + fffffffc and ;
 
 : align  ( -- )
    here aligned to here ;
@@ -256,16 +262,17 @@ create (die-#tiben) 6 cells allot
 \ primitive,  ( u -- )
 alias primitive, ,
 
-\ call, jmp, jz,  ( addr -- )
 \ (00xx) aaaa  aaaa aaaa  aaaa aaaa  aaaa aaaa
+\ call, jmp, jz,  ( a-addr -- )
 : call, 10000000 or , ;
 : jmp,  20000000 or , ;
 : jz,   30000000 or , ;
 
-\ (0100) sssN  nnnn nnnn  nnnn nnnn  nnnn nnnn
-\ s...  = shift bits (u)
-\ Nn... = number bits (n)
+\ (0100) uuuN  nnnn nnnn  nnnn nnnn  nnnn nnnn
+\ u...  = shift bits
+\ Nn... = number bits
 \ (N    = sign, extended left)
+\ stores n>>u
 : push,  ( n u -- )  \ Run-time: ( -- n )
    dup 19 lshift -rot rshift fe000000 invert and or 40000000 or ,
 ;
@@ -275,7 +282,6 @@ alias primitive, ,
 \ s = stack (0: data stack, 1: rstack)
 \ w = width
 \ f = from
-
 \ pick, roll, rpick, rroll,  ( width from -- )
 : pick,  50000000 or swap 8 lshift or , ;
 : rpick, 00010000 or pick, ;
@@ -286,7 +292,7 @@ alias primitive, ,
 \ parser
 
 : /string   ( c-addr1 u1 n -- c-addr2 u2 ) tuck - -rot + swap ;
-: 1/string  ( c-addr1 u1 -- c-addr2 u2 )   1- swap 1+ swap ;
+: 1/string  ( c-addr1 u1 -- c-addr2 u2 )   1- swap char+ swap ;
 
 : <%  ( -- c-addr u )
    source >in @ /string
@@ -322,7 +328,7 @@ alias primitive, ,
    over save>in
 ;
 
-: scanned  ( a-addr1 -- a-addr2 u )
+: scanned  ( c-addr1 -- c-addr2 u )
    source drop >in @ +
    tuck -
 ;
@@ -341,9 +347,9 @@ alias primitive, ,
    <% rot %>char %>
 ;
 
-: tolower  ( char -- char )
+: tolower  ( char1 -- char2 )
    dup [char] A [[ char Z 1+ ]] literal within if
-   [[ char a char A - ]] literal + then
+     [[ char a char A - ]] literal + then
 ;
 
 : >digit  ( char -- u | -1 )
@@ -357,9 +363,9 @@ alias primitive, ,
 : >number  ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )
    begin dup while
      over c@ >digit
-     dup 0 base @ within while
+     dup base @ u< while
        -rot 2>r
-       >r base @ 0 ud* r> 0 ud+
+       >r base @ us>d ud* r> us>d ud+
        2r> 1/string
    repeat
      drop
@@ -412,10 +418,13 @@ alias primitive, ,
    drop swap -
 ;
 
+: set-source  ( a-addr u -- )
+   (source) 2! 0 >in !
+;
+
 : refill  ( -- flag )
    source-id if 0 exit then
-   3fe00 dup 200 accept
-   (source) 2! 0 >in !
+   3fe00 dup 200 accept set-source
    -1
 ;
 
@@ -468,10 +477,8 @@ alias primitive, ,
      (find) ?dup if
        1- if
        state @ 0= while then
-         execute
-       else
-         compile,
-       then
+         execute else
+         compile, then
      else
        2dup >num if
          nip nip
@@ -484,8 +491,7 @@ alias primitive, ,
 
 : evaluate  ( i*x c-addr u -- j*x )
    -1 to source-id
-   (source) 2! 0 >in !
-   lineproc
+   set-source lineproc
    0 to source-id
 ;
 
@@ -626,12 +632,9 @@ alias cs-roll roll
 : 2>r    postpone swap postpone >r postpone >r  ; immediate
 : 2r>    postpone r> postpone r> postpone swap  ; immediate
 : 2rdrop postpone rdrop postpone rdrop          ; immediate
-here 2 0 rpick,
-: 2r@    [ swap ] literal compile, postpone 2r> ; immediate
-
+: 2r@    2 0 rpick, postpone 2r>                ; immediate
 alias i r@
-here 1 2 rpick,
-: j [ swap ] literal compile, postpone r> ; immediate
+: j      1 2 rpick, postpone r>                 ; immediate
 
 : (do) postpone begin postpone 2>r ;
 : do 0 (do) ; immediate
@@ -667,9 +670,9 @@ here 1 2 rpick,
 : spaces 0 ?do space loop ;
 
 : sliteral  \ Compilation: ( c-addr1 u -- )  Run-time: ( -- c-addr2 u )
-   postpone ahead here swap
-   2over s, align
-   postpone then postpone literal postpone literal drop
+   tuck here -rot 0 call,
+   s, align
+   postpone then ['] r> compile, postpone literal
 ; immediate
 
 : s"  \ Compilation: ( "ccc<quote>" -- )  Run-time: ( -- c-addr u )
@@ -705,7 +708,9 @@ variable (#pad)
 44 allot
 here constant (end#pad)
 
-: <#  (end#pad) (#pad) ! ;
+: <#  ( -- )
+   (end#pad) (#pad) !
+;
 
 : hold  ( char -- )
    (#pad) @ 1- tuck c! (#pad) !
@@ -716,13 +721,13 @@ here constant (end#pad)
 ;
 
 : #  ( ud1 -- ud2 )
-   base @ um/mod swap
+   base @ us>d ud/mod 2swap ud>s
    dup a < if [char] 0 else [ char A a - ] literal then +
-   hold us>d
+   hold
 ;
 
 : #s  ( ud1 -- ud2 )
-   begin # over 0= until
+   begin # 2dup or 0= until
 ;
 
 : #>  ( xd -- c-addr u )
@@ -751,13 +756,13 @@ here constant (end#pad)
 
 : .s  depth 1- -1 swap ?do i pick . -1 +loop cr ;
 
-: #b.go  ( ud1 -- ud2 )
+: #go  ( ud1 -- ud2 )
    s" , " holds # # s" 0x" holds
 ;
 
 : .go  ( x -- )
    base @ swap hex
-   us>d <# #b.go #b.go #b.go #b.go #> type
+   us>d <# #go #go #go #go #> type
    base !
 ;
 
@@ -768,16 +773,18 @@ here constant (end#pad)
    then hold
 ;
 
+: #p  ( ud1 -- ud2 )
+   ud>s dup ff and holdp  8 rshift us>d
+;
+
 : .p  ( x -- )
-   us>d <#  4 0 ?do
-     ud>s dup ff and holdp  8 rshift us>d
-   loop  #> type
+   us>d <# #p #p #p #p #> type
 ;
 
 \ ***************************************************************
 \ disassembler and dump
 
-: dis-pickroll  ( x -- a-addr u )
+: dis-pickroll  ( x -- c-addr u )
    dup 0ffcc0c0 and if drop 0 0 exit then
    base @ swap hex
    us>d <#
@@ -794,34 +801,31 @@ here constant (end#pad)
    rot base !
 ;
 
-: dis-primitive  ( x -- a-addr u )
+: dis-primitive  ( x -- c-addr u )
    >r [ ' bye cell+ ] literal
    begin ?dup while
      :>s 2dup + aligned dup cell+ @ r@ <> while
      nip nip @
    repeat
-     drop else
+     drop <# 2dup holds bl hold bl hold #> else
      0 0 then
    rdrop
 ;
 
 : dis  ( x -- )
-   dup 80 u< if
-     dis-primitive ?dup if ."   " type else drop then   exit then
+   dup 80 u<      if                 dis-primitive type exit then
    dup f0000000 and
-   dup 10000000 = if  xor ."   call " h.x               exit then
-   dup 20000000 = if  xor ."   jmp  " h.x               exit then
-   dup 30000000 = if  xor ."   jz   " h.x               exit then
-   dup 40000000 = if drop ."   push " decode-push u.x   exit then
-   dup 50000000 = if  xor             dis-pickroll type exit then
+   dup 10000000 = if xor ."   call "               h.x  exit then
+   dup 20000000 = if xor ."   jmp  "               h.x  exit then
+   dup 30000000 = if xor ."   jz   "               h.x  exit then
+   dup 40000000 = if xor ."   push " decode-push   u.x  exit then
+   dup 50000000 = if xor             dis-pickroll  type exit then
    2drop
 ;
 
 : dumpcell2go  ( a-addr -- a-addr )
-   9 emit dup @ dup .go ." // " over h.x
-   bl emit bl emit
-   dup .p dis
-   cr
+   dup @
+   9 emit  dup .go  ." // "  over h.x  bl emit bl emit  dup .p  dis  cr
 ;
 
 : dumpcell  ( a-addr -- a-addr )
@@ -854,7 +858,7 @@ here constant (end#pad)
 : words  ( -- )
    (words) begin
      @ ?dup while
-     :>s 2dup type a over a mod - spaces + aligned repeat
+     :>s 2dup type a 2dup mod - spaces + aligned repeat
 ;
 
 \ ***************************************************************
