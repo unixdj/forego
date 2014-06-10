@@ -5,7 +5,7 @@
 package main
 
 import (
-	"forego/forth"
+	"github.com/unixdj/forego/forth"
 	"os"
 )
 

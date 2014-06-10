@@ -10,11 +10,12 @@ package main
 
 import (
 	"fmt"
-	"forego/forth"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/unixdj/forego/forth"
 )
 
 func main() {
