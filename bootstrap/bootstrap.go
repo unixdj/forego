@@ -3,6 +3,8 @@
 // license that can be found in the LICENSE file.
 
 /*
+Bootstrap is a helper for bootstrapping the Forego kernel.
+
 Usage:
 	./bootstrap <../forth/boot.4th >../forth/kern.go
 */
@@ -35,5 +37,8 @@ func main() {
 		vm   = forth.NewVM(in, os.Stdout)
 	)
 	copy(vm.Mem[addr:], code)
-	vm.Run()
+	if err := vm.Run(); err != nil {
+		instr := err.(*forth.Error).Instr
+		log.Fatalf("%v: %v (%v)\n", err, instr, forth.Cell(instr))
+	}
 }

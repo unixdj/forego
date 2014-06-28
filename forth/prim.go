@@ -6,435 +6,582 @@ package forth
 
 import "io"
 
-func (vm *VM) unimplemented() {
-	panic("unimplemented")
+func (vm *VM) unimplemented() error {
+	return IllegalInstruction
 }
 
 // nop ( -- )
-func (vm *VM) nop() {
+func (vm *VM) nop() error {
+	return nil
 }
 
 // exit ( -- ) ( R: nest-sys -- )
-func (vm *VM) exit() {
-	vm.pc = vm.rstack.pop()
+func (vm *VM) exit() error {
+	var err error
+	vm.pc, err = vm.rstack.pop()
+	return rstackError(err)
 }
 
 // (abort) ( i*x -- )
-func (vm *VM) abortHelper() {
+func (vm *VM) abortHelper() error {
 	vm.stack.clear()
+	return nil
 }
 
 // (quit) ( R: i*x -- )
-func (vm *VM) quitHelper() {
+func (vm *VM) quitHelper() error {
 	vm.rstack.clear()
+	return nil
 }
 
 // pick ( xu ... x1 x0 u -- xu ... x1 x0 xu )
-func (vm *VM) pick() {
-	vm.stack.pick(1, int(vm.stack.pop()))
+func (vm *VM) pick() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	return vm.stack.pick(1, int(c))
 }
 
 // roll ( xu xu-1 ... x0 u -- xu-1 ... x0 xu )
-func (vm *VM) roll() {
-	vm.stack.roll(1, int(vm.stack.pop()))
+func (vm *VM) roll() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	return vm.stack.roll(1, int(c))
 }
 
 // depth ( -- +n )
-func (vm *VM) depth() {
-	vm.stack.push(vm.stack.depth())
+func (vm *VM) depth() error {
+	return vm.stack.push(vm.stack.depth())
 }
 
 // drop ( x -- )
-func (vm *VM) drop() {
-	vm.stack.pop()
+func (vm *VM) drop() error {
+	_, err := vm.stack.pop()
+	return err
 }
 
 // 2drop ( x1 x2 -- )
-func (vm *VM) twoDrop() {
-	vm.stack.pop()
-	vm.stack.pop()
+func (vm *VM) twoDrop() error {
+	_, _, err := vm.stack.pop2()
+	return err
 }
 
 // ?dup ( x -- 0 | x x )
-func (vm *VM) questionDup() {
-	c := vm.stack.peek()
-	if c != 0 {
-		vm.stack.push(c)
+func (vm *VM) questionDup() error {
+	c, err := vm.stack.peek()
+	if c == 0 {
+		return err
 	}
+	return vm.stack.push(c)
 }
 
 // nip ( x1 x2 -- x2 )
-func (vm *VM) nip() {
-	vm.stack.roll(1, 1) // swap
-	vm.stack.pop()      // drop
+func (vm *VM) nip() error {
+	if err := vm.stack.roll(1, 1); err != nil { // swap
+		return err
+	}
+	vm.stack.pop() // drop
+	return nil
 }
 
 // tuck ( x1 x2 -- x2 x1 x2 )
-func (vm *VM) tuck() {
+func (vm *VM) tuck() error {
+	if err := vm.stack.need(2, 1); err != nil {
+		return err
+	}
 	vm.stack.pick(1, 0) // dup
 	vm.stack.roll(2, 1) // -rot
+	return nil
 }
 
 // >r ( x -- ) ( R:  -- x )
-func (vm *VM) toR() {
-	vm.rstack.push(vm.stack.pop())
+func (vm *VM) toR() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	return rstackError(vm.rstack.push(c))
 }
 
 // r> ( -- x ) ( R:  x -- )
-func (vm *VM) rFrom() {
-	vm.stack.push(vm.rstack.pop())
+func (vm *VM) rFrom() error {
+	c, err := vm.rstack.pop()
+	if err != nil {
+		return rstackError(err)
+	}
+	return vm.stack.push(c)
 }
 
 // r@ ( -- x ) ( R:  x -- x )
-func (vm *VM) rFetch() {
-	vm.stack.push(vm.rstack.peek())
+func (vm *VM) rFetch() error {
+	c, err := vm.rstack.peek()
+	if err != nil {
+		return rstackError(err)
+	}
+	return vm.stack.push(c)
 }
 
 // rdrop ( R: x -- )
-func (vm *VM) rDrop() {
-	vm.rstack.pop()
+func (vm *VM) rDrop() error {
+	_, err := vm.rstack.pop()
+	return rstackError(err)
 }
 
 // @ ( a-addr -- x )
-func (vm *VM) fetch() {
-	vm.stack.push(vm.readCell(vm.stack.pop()))
+func (vm *VM) fetch() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	if c, err = vm.readCell(c); err != nil {
+		return err
+	}
+	return vm.stack.push(c)
 }
 
 // ! ( x a-addr -- )
-func (vm *VM) store() {
-	a := vm.stack.pop()
-	vm.writeCell(a, vm.stack.pop())
+func (vm *VM) store() error {
+	c, a, err := vm.stack.pop2()
+	if err != nil {
+		return err
+	}
+	return vm.writeCell(a, c)
 }
 
 // c@ ( c-addr -- char )
-func (vm *VM) cFetch() {
-	vm.stack.push(vm.readByte(vm.stack.pop()))
+func (vm *VM) cFetch() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	if c, err = vm.readByte(c); err != nil {
+		return err
+	}
+	return vm.stack.push(c)
 }
 
 // c! ( char c-addr -- )
-func (vm *VM) cStore() {
-	a := vm.stack.pop()
-	vm.writeByte(a, vm.stack.pop())
+func (vm *VM) cStore() error {
+	c, a, err := vm.stack.pop2()
+	if err != nil {
+		return err
+	}
+	return vm.writeByte(a, c)
 }
 
 // 2@ ( a-addr -- x1 x2 )
-func (vm *VM) twoFetch() {
-	a := vm.stack.pop()
-	vm.stack.push(vm.readCell(a + cellSize))
-	vm.stack.push(vm.readCell(a))
+func (vm *VM) twoFetch() error {
+	a, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	c, err := vm.readCell(a + cellSize)
+	if err != nil {
+		return err
+	}
+	vm.stack.push(c) // will succeed
+	if c, err = vm.readCell(a); err != nil {
+		return err
+	}
+	return vm.stack.push(c)
 }
 
 // 2! ( x1 x2 a-addr -- )
-func (vm *VM) twoStore() {
-	a := vm.stack.pop()
-	vm.writeCell(a, vm.stack.pop())
-	vm.writeCell(a+cellSize, vm.stack.pop())
+func (vm *VM) twoStore() error {
+	if err := vm.stack.need(3, 0); err != nil {
+		return err
+	}
+	c, a, _ := vm.stack.pop2()
+	if err := vm.writeCell(a, c); err != nil {
+		return err
+	}
+	c, _ = vm.stack.pop()
+	return vm.writeCell(a+cellSize, c)
 }
 
 // +! ( n|u a-addr -- )
-func (vm *VM) plusStore() {
-	a := vm.stack.pop()
-	vm.writeCell(a, vm.readCell(a)+vm.stack.pop())
+func (vm *VM) plusStore() error {
+	c, a, err := vm.stack.pop2()
+	if err != nil {
+		return err
+	}
+	v, err := vm.readCell(a)
+	if err != nil {
+		return err
+	}
+	return vm.writeCell(a, v+c)
 }
 
-func forthBool(b bool) Cell {
+func flag(b bool) Cell {
 	if b {
 		return forthTrue
 	}
 	return forthFalse
 }
 
+func (vm *VM) unaryOp(op func(c Cell) Cell) error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	return vm.stack.push(op(c))
+}
+
+func (vm *VM) binaryOp(op func(x, y Cell) Cell) error {
+	x, y, err := vm.stack.pop2()
+	if err != nil {
+		return err
+	}
+	return vm.stack.push(op(x, y))
+}
+
 // = ( x1 x2 -- flag )
-func (vm *VM) equals() {
-	vm.stack.push(forthBool(vm.stack.pop() == vm.stack.pop()))
+func (vm *VM) equals() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return flag(x == y) })
 }
 
 // <> ( x1 x2 -- flag )
-func (vm *VM) notEquals() {
-	vm.stack.push(forthBool(vm.stack.pop() != vm.stack.pop()))
+func (vm *VM) notEquals() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return flag(x != y) })
 }
 
 // < ( n1 n2 -- flag )
-func (vm *VM) lessThan() {
-	c := SCell(vm.stack.pop())
-	vm.stack.push(forthBool(SCell(vm.stack.pop()) < c))
+func (vm *VM) lessThan() error {
+	return vm.binaryOp(func(x, y Cell) Cell {
+		return flag(sCell(x) < sCell(y))
+	})
 }
 
 // > ( n1 n2 -- flag )
-func (vm *VM) greaterThan() {
-	c := SCell(vm.stack.pop())
-	vm.stack.push(forthBool(SCell(vm.stack.pop()) > c))
+func (vm *VM) greaterThan() error {
+	return vm.binaryOp(func(x, y Cell) Cell {
+		return flag(sCell(x) > sCell(y))
+	})
 }
 
 // u< ( u1 u2 -- flag )
-func (vm *VM) uLessThan() {
-	c := vm.stack.pop()
-	vm.stack.push(forthBool(vm.stack.pop() < c))
+func (vm *VM) uLessThan() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return flag(x < y) })
 }
 
 // u> ( u1 u2 -- flag )
-func (vm *VM) uGreaterThan() {
-	c := vm.stack.pop()
-	vm.stack.push(forthBool(vm.stack.pop() > c))
+func (vm *VM) uGreaterThan() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return flag(x > y) })
 }
 
 // 0< ( n -- flag )
-func (vm *VM) zeroLess() {
-	vm.stack.push(forthBool(SCell(vm.stack.pop()) < 0))
+func (vm *VM) zeroLess() error {
+	return vm.unaryOp(func(c Cell) Cell { return flag(sCell(c) < 0) })
 }
 
 // 0> ( n -- flag )
-func (vm *VM) zeroGreater() {
-	vm.stack.push(forthBool(SCell(vm.stack.pop()) > 0))
+func (vm *VM) zeroGreater() error {
+	return vm.unaryOp(func(c Cell) Cell { return flag(sCell(c) > 0) })
 }
 
 // 0= ( x -- flag )
-func (vm *VM) zeroEquals() {
-	vm.stack.push(forthBool(vm.stack.pop() == forthFalse))
+func (vm *VM) zeroEquals() error {
+	return vm.unaryOp(func(c Cell) Cell { return flag(c == forthFalse) })
 }
 
 // 0<> ( x -- flag )
-func (vm *VM) zeroNotEquals() {
-	vm.stack.push(forthBool(vm.stack.pop() != forthFalse))
+func (vm *VM) zeroNotEquals() error {
+	return vm.unaryOp(func(c Cell) Cell { return flag(c != forthFalse) })
 }
 
 // invert ( x1 -- x2 )
-func (vm *VM) invert() {
-	vm.stack.push(^vm.stack.pop())
+func (vm *VM) invert() error {
+	return vm.unaryOp(func(c Cell) Cell { return ^c })
 }
 
 // and ( x1 x2 -- x3 )
-func (vm *VM) and() {
-	vm.stack.push(vm.stack.pop() & vm.stack.pop())
+func (vm *VM) and() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x & y })
 }
 
 // or ( x1 x2 -- x3 )
-func (vm *VM) or() {
-	vm.stack.push(vm.stack.pop() | vm.stack.pop())
+func (vm *VM) or() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x | y })
 }
 
 // xor ( x1 x2 -- x3 )
-func (vm *VM) xor() {
-	vm.stack.push(vm.stack.pop() ^ vm.stack.pop())
+func (vm *VM) xor() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x ^ y })
 }
 
 // lshift ( x1 u -- x2 )
-func (vm *VM) lShift() {
-	c := vm.stack.pop()
-	vm.stack.push(vm.stack.pop() << c)
+func (vm *VM) lShift() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x << y })
 }
 
 // rshift ( x1 u -- x2 )
-func (vm *VM) rShift() {
-	c := vm.stack.pop()
-	vm.stack.push(vm.stack.pop() >> c)
+func (vm *VM) rShift() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x >> y })
 }
 
 // 2* ( x1 -- x2 )
-func (vm *VM) twoStar() {
-	vm.stack.push(vm.stack.pop() << 1)
+func (vm *VM) twoStar() error {
+	return vm.unaryOp(func(c Cell) Cell { return c << 1 })
 }
 
 // 2/ ( x1 -- x2 )
-func (vm *VM) twoSlash() {
-	vm.stack.push(Cell(SCell(vm.stack.pop()) >> 1))
+func (vm *VM) twoSlash() error {
+	return vm.unaryOp(func(c Cell) Cell { return Cell(sCell(c) / 2) })
 }
 
 // 1+ ( n1|u1 -- n2|u2 )
-func (vm *VM) onePlus() {
-	vm.stack.push(vm.stack.pop() + 1)
+func (vm *VM) onePlus() error {
+	return vm.unaryOp(func(c Cell) Cell { return c + 1 })
 }
 
 // 1- ( n1|u1 -- n2|u2 )
-func (vm *VM) oneMinus() {
-	vm.stack.push(vm.stack.pop() - 1)
+func (vm *VM) oneMinus() error {
+	return vm.unaryOp(func(c Cell) Cell { return c - 1 })
 }
 
 // + ( n1|u1 n2|u2 -- n3|u3 )
-func (vm *VM) plus() {
-	vm.stack.push(vm.stack.pop() + vm.stack.pop())
+func (vm *VM) plus() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x + y })
 }
 
 // - ( n1|u1 n2|u2 -- n3|u3 )
-func (vm *VM) minus() {
-	c := vm.stack.pop()
-	vm.stack.push(vm.stack.pop() - c)
+func (vm *VM) minus() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x - y })
 }
 
 // * ( n1|u1 n2|u2 -- n3|u3 )
-func (vm *VM) star() {
-	vm.stack.push(vm.stack.pop() * vm.stack.pop())
+func (vm *VM) star() error {
+	return vm.binaryOp(func(x, y Cell) Cell { return x * y })
 }
 
 // / ( n1 n2 -- n3 )
-func (vm *VM) slash() {
-	c := SCell(vm.stack.pop())
-	if c == 0 {
-		panic("zero division")
+func (vm *VM) slash() error {
+	x, y, err := vm.stack.pop2()
+	switch {
+	case err != nil:
+		return err
+	case y == 0:
+		return ZeroDivision
 	}
-	vm.stack.push(Cell(SCell(vm.stack.pop()) / c))
+	return vm.stack.push(Cell(sCell(x) / sCell(y)))
 }
 
 // mod ( n1 n2 -- n3 )
-func (vm *VM) mod() {
-	c := SCell(vm.stack.pop())
-	if c == 0 {
-		panic("zero division")
+func (vm *VM) mod() error {
+	x, y, err := vm.stack.pop2()
+	switch {
+	case err != nil:
+		return err
+	case y == 0:
+		return ZeroDivision
 	}
-	vm.stack.push(Cell(SCell(vm.stack.pop()) % c))
+	return vm.stack.push(Cell(sCell(x) % sCell(y)))
 }
 
 // /mod ( n1 n2 -- n3 n4 )
-func (vm *VM) slashMod() {
-	b := SCell(vm.stack.pop())
-	if b == 0 {
-		panic("zero division")
+func (vm *VM) slashMod() error {
+	x, y, err := vm.stack.pop2()
+	switch {
+	case err != nil:
+		return err
+	case y == 0:
+		return ZeroDivision
 	}
-	a := SCell(vm.stack.pop())
-	vm.stack.push(Cell(a % b))
-	vm.stack.push(Cell(a / b))
+	vm.stack.push(Cell(sCell(x) % sCell(y))) // will succeed
+	return vm.stack.push(Cell(sCell(x) / sCell(y)))
 }
 
 // */ ( n1 n2 n3 -- n4 )
-func (vm *VM) starSlash() {
-	c := SDCell(SCell(vm.stack.pop()))
-	if c == 0 {
-		panic("zero division")
+func (vm *VM) starSlash() error {
+	if err := vm.stack.need(3, 0); err != nil {
+		return err
 	}
-	p := SDCell(SCell(vm.stack.pop())) * SDCell(SCell(vm.stack.pop()))
-	vm.stack.push(Cell(p / c))
+	c, _ := vm.stack.pop()
+	if c == 0 {
+		return ZeroDivision
+	}
+	a, b, _ := vm.stack.pop2()
+	return vm.stack.push(Cell(
+		sdCell(sCell(a)) * sdCell(sCell(b)) / sdCell(sCell(c))))
 }
 
 // */mod ( n1 n2 n3 -- n4 n5 )
-func (vm *VM) starSlashMod() {
-	c := SDCell(SCell(vm.stack.pop()))
-	if c == 0 {
-		panic("zero division")
+func (vm *VM) starSlashMod() error {
+	if err := vm.stack.need(3, 0); err != nil {
+		return err
 	}
-	p := SDCell(SCell(vm.stack.pop())) * SDCell(SCell(vm.stack.pop()))
-	vm.stack.push(Cell(p % c))
-	vm.stack.push(Cell(p / c))
+	c, _ := vm.stack.pop()
+	if c == 0 {
+		return ZeroDivision
+	}
+	a, b, _ := vm.stack.pop2()
+	vm.stack.push(Cell( // will succeed
+		sdCell(sCell(a)) * sdCell(sCell(b)) % sdCell(sCell(c))))
+	return vm.stack.push(Cell(
+		sdCell(sCell(a)) * sdCell(sCell(b)) / sdCell(sCell(c))))
 }
 
 // m* ( n1 n2 -- d )
-func (vm *VM) mStar() {
-	vm.stack.pushd(DCell(SDCell(SCell(vm.stack.pop())) *
-		SDCell(SCell(vm.stack.pop()))))
+func (vm *VM) mStar() error {
+	a, b, err := vm.stack.pop2()
+	if err != nil {
+		return err
+	}
+	return vm.stack.pushd(dCell(sdCell(sCell(a)) * sdCell(sCell(b))))
 }
 
 // um* ( u1 u2 -- ud )
-func (vm *VM) umStar() {
-	vm.stack.pushd(DCell(vm.stack.pop()) * DCell(vm.stack.pop()))
+func (vm *VM) umStar() error {
+	a, b, err := vm.stack.pop2()
+	if err != nil {
+		return err
+	}
+	return vm.stack.pushd(dCell(a) * dCell(b))
 }
 
 // fm/mod ( d1 n1 -- n2 n3 )
-func (vm *VM) fmSlashMod() {
+func (vm *VM) fmSlashMod() error {
 	// (a - (a<0 ? b-1 : 0)) / b
-	b := SDCell(SCell(vm.stack.pop()))
-	if b == 0 {
-		panic("zero division")
+	if err := vm.stack.need(3, 0); err != nil {
+		return err
 	}
-	a := SDCell(SCell(vm.stack.popd()))
-	q := a / b
-	if (a%b != 0) && ((a < 0) != (b < 0)) {
+	b, _ := vm.stack.pop()
+	if b == 0 {
+		return ZeroDivision
+	}
+	a, _ := vm.stack.popd()
+	q := sdCell(a) / sdCell(sCell(b))
+	if (sdCell(a)%sdCell(sCell(b)) != 0) &&
+		((sdCell(a) < 0) != (sdCell(sCell(b)) < 0)) {
 		q--
 	}
-	vm.stack.push(Cell(a - (b * q)))
-	vm.stack.push(Cell(q))
+	vm.stack.push(Cell(sdCell(a) - (sdCell(a) * q))) // will succeed
+	return vm.stack.push(Cell(q))
 }
 
 // sm/rem ( d1 n1 -- n2 n3 )
-func (vm *VM) smSlashRem() {
-	b := SDCell(SCell(vm.stack.pop()))
-	if b == 0 {
-		panic("zero division")
+func (vm *VM) smSlashRem() error {
+	if err := vm.stack.need(3, 0); err != nil {
+		return err
 	}
-	a := SDCell(vm.stack.popd())
-	vm.stack.push(Cell(a % b))
-	vm.stack.push(Cell(a / b))
+	b, _ := vm.stack.pop()
+	if b == 0 {
+		return ZeroDivision
+	}
+	a, _ := vm.stack.popd()
+	vm.stack.push(Cell(sdCell(a) % sdCell(sCell(b)))) // will succeed
+	return vm.stack.push(Cell(sdCell(a) / sdCell(sCell(b))))
 }
 
 // um/mod ( ud n2 -- n3 n4 )
-func (vm *VM) umSlashMod() {
-	b := DCell(vm.stack.pop())
-	if b == 0 {
-		panic("zero division")
+func (vm *VM) umSlashMod() error {
+	if err := vm.stack.need(3, 0); err != nil {
+		return err
 	}
-	a := vm.stack.popd()
-	vm.stack.push(Cell(a % b))
-	vm.stack.push(Cell(a / b))
+	b, _ := vm.stack.pop()
+	if b == 0 {
+		return ZeroDivision
+	}
+	a, _ := vm.stack.popd()
+	vm.stack.push(Cell(a % dCell(b))) // will succeed
+	return vm.stack.push(Cell(a / dCell(b)))
 }
 
 // negate ( n1 -- n2 )
-func (vm *VM) negate() {
-	vm.stack.push(Cell(-SCell(vm.stack.pop())))
+func (vm *VM) negate() error {
+	return vm.unaryOp(func(c Cell) Cell { return Cell(-sCell(c)) })
 }
 
 // ud+ ( ud1 ud2 -- ud3 )
-func (vm *VM) udPlus() {
-	vm.stack.pushd(vm.stack.popd() + vm.stack.popd())
+func (vm *VM) udPlus() error {
+	a, b, err := vm.stack.pop2d()
+	if err != nil {
+		return err
+	}
+	return vm.stack.pushd(a + b)
 }
 
 // ud- ( ud1 ud2 -- ud3 )
-func (vm *VM) udMinus() {
-	d := vm.stack.popd()
-	vm.stack.pushd(vm.stack.popd() - d)
+func (vm *VM) udMinus() error {
+	a, b, err := vm.stack.pop2d()
+	if err != nil {
+		return err
+	}
+	return vm.stack.pushd(a - b)
 }
 
 // ud* ( ud1 ud2 -- ud3 )
-func (vm *VM) udStar() {
-	vm.stack.pushd(vm.stack.popd() * vm.stack.popd())
+func (vm *VM) udStar() error {
+	a, b, err := vm.stack.pop2d()
+	if err != nil {
+		return err
+	}
+	return vm.stack.pushd(a * b)
 }
 
 // ud/mod ( ud1 ud2 -- ud3 ud4 )
-func (vm *VM) udSlashMod() {
-	b := vm.stack.popd()
-	if b == 0 {
-		panic("zero division")
+func (vm *VM) udSlashMod() error {
+	a, b, err := vm.stack.pop2d()
+	switch {
+	case err != nil:
+		return err
+	case b == 0:
+		return ZeroDivision
 	}
-	a := vm.stack.popd()
-	vm.stack.pushd(a % b)
-	vm.stack.pushd(a / b)
+	vm.stack.pushd(a % b) // will succeed
+	return vm.stack.pushd(a / b)
 }
 
 // key ( -- char )
-func (vm *VM) key() {
+func (vm *VM) key() error {
 	switch b, err := vm.in.ReadByte(); err {
 	case nil:
-		vm.stack.push(Cell(b))
+		return vm.stack.push(Cell(b))
 	case io.EOF:
-		vm.stack.push(Cell(forthTrue))
+		return vm.stack.push(forthTrue)
 	default:
-		panic(err)
+		return vm.newIOError(err)
 	}
 }
 
 // emit ( char -- )
-func (vm *VM) emit() {
-	b := []byte{byte(vm.stack.pop())}
-	if _, err := vm.out.Write(b); err != nil {
-		panic(err)
+func (vm *VM) emit() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
 	}
+	if _, err = vm.out.Write([]byte{byte(c)}); err != nil {
+		return vm.newIOError(err)
+	}
+	return nil
 }
 
 // trace ( flag -- )
-func (vm *VM) setTrace() {
-	vm.debug = vm.stack.pop() != 0
+func (vm *VM) setTrace() error {
+	c, err := vm.stack.pop()
+	if err != nil {
+		return err
+	}
+	vm.debug = c != 0
+	return nil
 }
 
 // bye ( -- )
-func (vm *VM) bye() {
-	panic("bye")
+func (vm *VM) bye() error {
+	return Bye
 }
 
 // eof ( -- )
-func (vm *VM) eof() {
-	panic("eof")
+func (vm *VM) eof() error {
+	return EOF
 }
 
 var primitives = []struct {
 	name string
-	f    func(*VM)
+	f    func(*VM) error
 }{
 	{"nop", (*VM).nop},
 	{"exit", (*VM).exit},
